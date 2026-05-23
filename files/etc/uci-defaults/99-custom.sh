@@ -51,10 +51,11 @@ case "$board_name" in
         echo "Using $board_name mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
         ;;
     *)
-        # 默认第一个接口为WAN，其余为LAN
-        wan_ifname=$(echo "$ifnames" | awk '{print $1}')
-        lan_ifnames=$(echo "$ifnames" | cut -d ' ' -f2-)
-        echo "Using default mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
+        # 默认最后一个接口为WAN，其余为LAN
+        total_interfaces=$(echo "$ifnames" | wc -w)
+        wan_ifname=$(echo "$ifnames" | awk -v total="$total_interfaces" '{print $total}')
+        lan_ifnames=$(echo "$ifnames" | awk -v total="$total_interfaces" '{for(i=1;i<total;i++) printf "%s ", $i; if(total>1) printf "\n"}' | sed 's/[[:space:]]*$//')
+        echo "Using last interface as WAN mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
         ;;
 esac
 
