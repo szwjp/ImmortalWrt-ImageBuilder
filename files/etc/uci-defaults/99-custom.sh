@@ -93,6 +93,8 @@ elif [ "$count" -gt 1 ]; then
         for port in $lan_ifnames; do
             uci add_list "network.$section.ports"="$port"
         done
+        # 开启 STP 防止多 LAN 口接入同一交换机时产生环路
+        uci set "network.$section.stp"='1'
         echo "Updated br-lan ports: $lan_ifnames" >>$LOGFILE
 
         # LAN口设置静态IP (仅在 br-lan 找到时配置，避免写出半残配置)
