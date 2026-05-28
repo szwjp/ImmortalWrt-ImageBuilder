@@ -1,7 +1,7 @@
 #!/bin/bash
 # Log file for debugging
-# 目前支持少部分第三方软件apk 通过打开shell/apk-custom-packages.sh的注释来集成
-source shell/apk-custom-packages.sh
+# 目前支持少部分第三方软件apk 通过打开shell/custom-packages-25.sh的注释来集成
+source shell/custom-packages-25.sh
 echo "第三方apk软件包: $CUSTOM_PACKAGES"
 LOGFILE="/tmp/uci-defaults-log.txt"
 echo "Starting 99-custom.sh at $(date)" >> $LOGFILE
@@ -45,23 +45,8 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
 
 # ============= imm仓库内的插件==============
 # 定义所需安装的包列表 下列插件你都可以自行删减
-PACKAGES=""
-PACKAGES="$PACKAGES curl"
-PACKAGES="$PACKAGES luci-i18n-diskman-zh-cn"
-PACKAGES="$PACKAGES luci-i18n-firewall-zh-cn"
-PACKAGES="$PACKAGES luci-theme-argon"
-PACKAGES="$PACKAGES luci-app-argon-config"
-PACKAGES="$PACKAGES luci-i18n-argon-config-zh-cn"
-#25.12
-PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
-PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
-PACKAGES="$PACKAGES openssh-sftp-server"
-
-# 文件管理器
-PACKAGES="$PACKAGES luci-i18n-filemanager-zh-cn"
-# ======== shell/apk-custom-packages.sh =======
-# 合并imm仓库以外的第三方插件 暂时注释
-PACKAGES="$PACKAGES $CUSTOM_PACKAGES"
+# 所有软件包已在 shell/custom-packages-25.sh 中定义
+PACKAGES="$CUSTOM_PACKAGES"
 
 
 # 判断是否需要编译 Docker 插件

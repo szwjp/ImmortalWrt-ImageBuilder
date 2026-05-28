@@ -3,7 +3,7 @@
 # Log file for debugging
 LOGFILE="/etc/config/uci-defaults-log.txt"
 echo "Starting 99-custom.sh at $(date)" >>$LOGFILE
-# 设置默认防火墙规则，方便单网口虚拟机首次访问 WebUI 
+# 设置默认防火墙规则，方便单网口虚拟机首次访问 WebUI
 # 因为本项目中 单网口模式是dhcp模式 直接就能上网并且访问web界面 避免新手每次都要修改/etc/config/network中的静态ip
 # 当你刷机运行后 都调整好了 你完全可以在web页面自行关闭 wan口防火墙的入站数据
 # 具体操作方法：网络——防火墙 在wan的入站数据 下拉选项里选择 拒绝 保存并应用即可。
@@ -67,7 +67,9 @@ if [ "$count" -eq 1 ]; then
     uci delete network.lan.netmask
     uci delete network.lan.gateway
     uci delete network.lan.dns
-    uci commit network
+    uci commit network || {
+        echo "error: uci commit network failed" >>$LOGFILE
+    }
 elif [ "$count" -gt 1 ]; then
     # 多网口设备配置
     # 配置WAN
@@ -83,7 +85,7 @@ elif [ "$count" -gt 1 ]; then
     # 查找 br-lan 设备 section
     section=$(uci show network | awk -F '[.=]' '/\.@?device\[\d+\]\.name=.br-lan.$/ {print $2; exit}')
     if [ -z "$section" ]; then
-        echo "error：cannot find device 'br-lan'." >>$LOGFILE
+        echo "error: cannot find device 'br-lan', LAN ports not configured" >>$LOGFILE
     else
         # 删除原有ports
         uci -q delete "network.$section.ports"
@@ -92,25 +94,25 @@ elif [ "$count" -gt 1 ]; then
             uci add_list "network.$section.ports"="$port"
         done
         echo "Updated br-lan ports: $lan_ifnames" >>$LOGFILE
+
+        # LAN口设置静态IP (仅在 br-lan 找到时配置，避免写出半残配置)
+        uci set network.lan.proto='static'
+        # 多网口设备 支持修改为别的管理后台地址 在Github Action 的UI上自行输入即可
+        uci set network.lan.netmask='255.255.255.0'
+        # 设置路由器管理后台地址
+        IP_VALUE_FILE="/etc/config/custom_router_ip.txt"
+        if [ -f "$IP_VALUE_FILE" ]; then
+            CUSTOM_IP=$(cat "$IP_VALUE_FILE")
+            # 用户在UI上设置的路由器后台管理地址
+            uci set network.lan.ipaddr=$CUSTOM_IP
+            echo "custom router ip is $CUSTOM_IP" >> $LOGFILE
+        else
+            uci set network.lan.ipaddr='192.168.1.1'
+            echo "default router ip is 192.168.1.1" >> $LOGFILE
+        fi
     fi
 
-    # LAN口设置静态IP
-    uci set network.lan.proto='static'
-    # 多网口设备 支持修改为别的管理后台地址 在Github Action 的UI上自行输入即可 
-    uci set network.lan.netmask='255.255.255.0'
-    # 设置路由器管理后台地址
-    IP_VALUE_FILE="/etc/config/custom_router_ip.txt"
-    if [ -f "$IP_VALUE_FILE" ]; then
-        CUSTOM_IP=$(cat "$IP_VALUE_FILE")
-        # 用户在UI上设置的路由器后台管理地址
-        uci set network.lan.ipaddr=$CUSTOM_IP
-        echo "custom router ip is $CUSTOM_IP" >> $LOGFILE
-    else
-        uci set network.lan.ipaddr='192.168.1.1'
-        echo "default router ip is 192.168.1.1" >> $LOGFILE
-    fi
-
-    # PPPoE设置
+    # PPPoE设置 (只影响WAN口，不依赖LAN配置)
     echo "enable_pppoe value: $enable_pppoe" >>$LOGFILE
     if [ "$enable_pppoe" = "yes" ]; then
         echo "PPPoE enabled, configuring..." >>$LOGFILE
@@ -125,7 +127,9 @@ elif [ "$count" -gt 1 ]; then
         echo "PPPoE not enabled." >>$LOGFILE
     fi
 
-    uci commit network
+    uci commit network || {
+        echo "error: uci commit network failed" >>$LOGFILE
+    }
 fi
 
 # 设置所有网口可访问网页终端
@@ -138,7 +142,9 @@ uci commit
 # 设置编译作者信息
 FILE_PATH="/etc/openwrt_release"
 NEW_DESCRIPTION="Packaged by wukongdaily"
-sed -i "s/DISTRIB_DESCRIPTION='[^']*'/DISTRIB_DESCRIPTION='$NEW_DESCRIPTION'/" "$FILE_PATH"
+if [ -f "$FILE_PATH" ]; then
+    sed -i "s/DISTRIB_DESCRIPTION='[^']*'/DISTRIB_DESCRIPTION='$NEW_DESCRIPTION'/" "$FILE_PATH"
+fi
 
 # 若luci-app-advancedplus (进阶设置)已安装 则去除zsh的调用 防止命令行报 /usb/bin/zsh: not found的提示
 if [ -f /usr/lib/lua/luci/controller/advancedplus.lua ]; then
@@ -169,7 +175,7 @@ fi
 
 # 若安装了dockerd 则设置docker的防火墙规则
 # 扩大docker涵盖的子网范围 '172.16.0.0/12'
-# 方便各类docker容器的端口顺利通过防火墙 
+# 方便各类docker容器的端口顺利通过防火墙
 if command -v dockerd >/dev/null 2>&1; then
     echo "检测到 Docker，正在配置防火墙规则..."
     FW_FILE="/etc/config/firewall"

@@ -25,9 +25,10 @@ ImmortalWrt-ImageBuilder/
 │   ├── imm.config               # 23.05.4/24.10.x 版本配置
 │   └── imm25.config             # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
-│   ├── custom-packages.sh       # 自定义软件包配置 (opkg)
+│   ├── custom-packages-23.sh     # 自定义软件包配置 (23.05.4)
+│   ├── custom-packages-24.sh     # 自定义软件包配置 (24.10.x)
+│   ├── custom-packages-25.sh     # 自定义软件包配置 (25.12.x, APK)
 │   ├── prepare-packages.sh      # 软件包准备脚本 (opkg)
-│   ├── apk-custom-packages.sh   # 自定义软件包配置 (apk)
 │   ├── apk-prepare-packages.sh  # 软件包准备脚本 (apk)
 │   └── switch_repository.sh     # 仓库切换脚本
 └── files/etc/uci-defaults/      # 固件自定义文件目录
