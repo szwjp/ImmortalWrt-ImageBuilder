@@ -19,9 +19,7 @@ ImmortalWrt-ImageBuilder/
 │   ├── build-iso-25.12.x.yml       # ISO 安装器构建 (25.12.x)
 │   └── clean-workflow.yml          # 工作流清理
 ├── x86-64/                      # x86-64 平台配置目录
-│   ├── build23.sh               # 23.05.4 版本构建脚本
-│   ├── build24.sh               # 24.10.x 版本构建脚本
-│   ├── build25.sh               # 25.12.x 版本构建脚本
+│   ├── build.sh                 # 统一构建脚本 (通过 IMM_VERSION 区分版本)
 │   ├── imm.config               # 23.05.4/24.10.x 版本配置
 │   └── imm25.config             # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录

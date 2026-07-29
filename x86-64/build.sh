@@ -1,17 +1,28 @@
 #!/bin/bash
-# Log file for debugging
-source shell/custom-packages-24.sh
-source shell/switch_repository.sh
+set -euo pipefail
+
+# IMM_VERSION: 23 / 24 / 25 (由 workflow 通过环境变量传入)
+: "${IMM_VERSION:?请设置 IMM_VERSION 环境变量 (23/24/25)}"
+
+case "$IMM_VERSION" in
+  23) PKG_FORMAT="ipk"; STORE_REPO="https://github.com/wukongdaily/store.git" ;;
+  24) PKG_FORMAT="ipk"; STORE_REPO="https://github.com/wukongdaily/store.git" ;;
+  25) PKG_FORMAT="apk"; STORE_REPO="https://github.com/wukongdaily/apk.git" ;;
+  *)  echo "不支持的版本: $IMM_VERSION"; exit 1 ;;
+esac
+
+source "shell/custom-packages-${IMM_VERSION}.sh"
+if [ "$IMM_VERSION" != "25" ]; then
+  source shell/switch_repository.sh
+fi
+
 echo "第三方软件包: $CUSTOM_PACKAGES"
-LOGFILE="/tmp/uci-defaults-log.txt"
-echo "Starting 99-custom.sh at $(date)" >> $LOGFILE
 echo "编译固件大小为: $PROFILE MB"
 echo "Include Docker: $INCLUDE_DOCKER"
 
 echo "Create pppoe-settings"
-mkdir -p  /home/build/immortalwrt/files/etc/config
+mkdir -p /home/build/immortalwrt/files/etc/config
 
-# 创建pppoe配置文件 yml传入环境变量ENABLE_PPPOE等 写入配置文件 供99-custom.sh读取
 cat << EOF > /home/build/immortalwrt/files/etc/config/pppoe-settings
 enable_pppoe=${ENABLE_PPPOE}
 pppoe_account=${PPPOE_ACCOUNT}
@@ -24,65 +35,55 @@ cat /home/build/immortalwrt/files/etc/config/pppoe-settings
 if [ -z "$CUSTOM_PACKAGES" ]; then
   echo "⚪️ 未选择 任何第三方软件包"
 else
-  # ============= 同步第三方插件库==============
-  # 同步第三方软件仓库run/ipk
-  echo "🔄 正在同步第三方软件仓库 Cloning run file repo..."
-  git clone --depth=1 https://github.com/wukongdaily/store.git /tmp/store-run-repo
+  echo "🔄 正在同步第三方软件仓库 Cloning repo..."
+  git clone --depth=1 "$STORE_REPO" /tmp/store-repo
 
-  # 拷贝 run/x86 下所有 run 文件和ipk文件 到 extra-packages 目录
   mkdir -p /home/build/immortalwrt/extra-packages
-  cp -r /tmp/store-run-repo/run/x86/* /home/build/immortalwrt/extra-packages/
+  cp -r /tmp/store-repo/run/x86/* /home/build/immortalwrt/extra-packages/
 
   echo "✅ Run files copied to extra-packages:"
-  ls -lh /home/build/immortalwrt/extra-packages/*.run
-  # 解压并拷贝ipk到packages目录
-  sh shell/prepare-packages.sh
+  ls -lh /home/build/immortalwrt/extra-packages/*.run || true
+
+  if [ "$PKG_FORMAT" = "apk" ]; then
+    sh shell/apk-prepare-packages.sh
+  else
+    sh shell/prepare-packages.sh
+  fi
   ls -lah /home/build/immortalwrt/packages/
 fi
 
-# 输出调试信息
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
-
-# ============= imm仓库内的插件==============
-# 定义所需安装的包列表 下列插件你都可以自行删减
-# 所有软件包已在 shell/custom-packages-24.sh 中定义
 PACKAGES="$CUSTOM_PACKAGES"
 
-
-# 判断是否需要编译 Docker 插件
 if [ "$INCLUDE_DOCKER" = "yes" ]; then
     PACKAGES="$PACKAGES luci-i18n-dockerman-zh-cn"
     echo "Adding package: luci-i18n-dockerman-zh-cn"
 fi
 
-# 若构建openclash 则添加内核
 if echo "$PACKAGES" | grep -q "luci-app-openclash"; then
     echo "✅ 已选择 luci-app-openclash，添加 openclash core"
     mkdir -p files/etc/openclash/core
-    # Download clash_meta
     META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-amd64-v1.tar.gz"
-    wget -qO- $META_URL | tar xOvz > files/etc/openclash/core/clash_meta
+    wget -qO- "$META_URL" | tar xOvz > files/etc/openclash/core/clash_meta
     chmod +x files/etc/openclash/core/clash_meta
-    # Download GeoIP and GeoSite
     wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O files/etc/openclash/GeoIP.dat
     wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O files/etc/openclash/GeoSite.dat
-    # Download latest openclash Client
-    URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
-      | grep "browser_download_url.*ipk" \
-      | head -n1 \
-      | cut -d '"' -f 4)
-    echo "OpenClash latest ipk: $URL"
-    wget "$URL" -P /home/build/immortalwrt/packages/
+    if [ "$IMM_VERSION" != "23" ]; then
+        URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
+          | grep "browser_download_url.*${PKG_FORMAT}" \
+          | head -n1 \
+          | cut -d '"' -f 4)
+        echo "OpenClash latest ${PKG_FORMAT}: $URL"
+        wget "$URL" -P /home/build/immortalwrt/packages/
+    fi
 else
     echo "⚪️ 未选择 luci-app-openclash"
 fi
 
-if echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
+if [ "$IMM_VERSION" != "23" ] && echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
     echo "✅ 已选择 luci-app-ssr-plus，添加 mihomo core"
     mkdir -p files/usr/bin
-    # Download mihomo
     MIHOMO_URL="https://github.com/MetaCubeX/mihomo/releases/download/v1.19.24/mihomo-linux-amd64-compatible-v1.19.24.gz"
-    mkdir -p files/usr/bin
     wget -qO- "$MIHOMO_URL" | gzip -dc > files/usr/bin/mihomo
     chmod +x files/usr/bin/mihomo
     echo "✅ 已下载 mihomo core"
@@ -90,15 +91,10 @@ if echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
 else
     echo "⚪️ 未选择 luci-app-ssr-plus"
 fi
-# 构建镜像
+
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Building image with the following packages:"
 echo "$PACKAGES"
 
-make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="/home/build/immortalwrt/files" ROOTFS_PARTSIZE=$PROFILE
-
-if [ $? -ne 0 ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: Build failed!"
-    exit 1
-fi
+make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="/home/build/immortalwrt/files" ROOTFS_PARTSIZE="$PROFILE"
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Build completed successfully."
