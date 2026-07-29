@@ -15,11 +15,7 @@
 ```
 ImmortalWrt-ImageBuilder/
 ├── .github/workflows/          # GitHub Actions 工作流目录
-│   ├── build-x86-64-23.05.4.yml    # x86-64 23.05.4 版本构建
-│   ├── build-x86-64-24.10.x.yml    # x86-64 24.10.x 版本构建
-│   ├── build-x86-64-25.12.x.yml    # x86-64 25.12.x 版本构建
-│   ├── build-iso.yml               # ISO 安装器构建 (24.10.x)
-│   ├── build-iso-25.12.x.yml       # ISO 安装器构建 (25.12.x)
+│   ├── build-x86-64.yml            # 统一构建工作流 (通过参数选择版本和输出格式)
 │   └── clean-workflow.yml          # 工作流清理
 ├── x86-64/                      # x86-64 平台配置目录
 │   ├── build.sh                 # 统一构建脚本 (通过 IMM_VERSION 区分版本)
