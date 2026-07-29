@@ -11,6 +11,7 @@ case "$IMM_VERSION" in
   *)  echo "不支持的版本: $IMM_VERSION"; exit 1 ;;
 esac
 
+CUSTOM_PACKAGES=""
 source "shell/custom-packages-${IMM_VERSION}.sh"
 if [ "$IMM_VERSION" != "25" ]; then
   source shell/switch_repository.sh
