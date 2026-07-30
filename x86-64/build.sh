@@ -13,8 +13,10 @@ esac
 
 CUSTOM_PACKAGES=""
 source "shell/custom-packages-${IMM_VERSION}.sh"
-if [ "$IMM_VERSION" != "25" ]; then
-  source shell/switch_repository.sh
+
+if [ "$IMM_VERSION" != "25" ] && [ "${ENABLE_STORE:-false}" = "true" ]; then
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"
+  echo "✅ 已追加 luci-app-store"
 fi
 
 echo "第三方软件包: $CUSTOM_PACKAGES"
@@ -84,7 +86,12 @@ fi
 if [ "$IMM_VERSION" != "23" ] && echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
     echo "✅ 已选择 luci-app-ssr-plus，添加 mihomo core"
     mkdir -p files/usr/bin
-    MIHOMO_URL="https://github.com/MetaCubeX/mihomo/releases/download/v1.19.24/mihomo-linux-amd64-compatible-v1.19.24.gz"
+    MIHOMO_VERSION=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+      | grep '"tag_name"' \
+      | head -n1 \
+      | cut -d '"' -f 4)
+    echo "mihomo latest version: $MIHOMO_VERSION"
+    MIHOMO_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/mihomo-linux-amd64-compatible-${MIHOMO_VERSION}.gz"
     wget -qO- "$MIHOMO_URL" | gzip -dc > files/usr/bin/mihomo
     chmod +x files/usr/bin/mihomo
     echo "✅ 已下载 mihomo core"

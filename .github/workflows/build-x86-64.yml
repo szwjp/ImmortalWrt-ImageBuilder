@@ -81,7 +81,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set executable permissions
         run: chmod +x ${{ github.workspace }}/x86-64/build.sh
@@ -110,12 +110,6 @@ jobs:
         run: |
           mkdir -p "${{ github.workspace }}/custom"
           echo "${{ inputs.custom_router_ip }}" > "${{ github.workspace }}/custom/custom_router_ip.txt"
-
-      - name: Enable Store integration
-        if: inputs.enable_store && inputs.version != '25'
-        run: |
-          echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"' >> shell/custom-packages-${{ inputs.version }}.sh
-          echo "✅ 已追加 luci-app-store"
 
       - name: Build ImmortalWrt firmware
         run: |
@@ -147,6 +141,7 @@ jobs:
               -e IMM_VERSION=$version \
               -e PROFILE=$p \
               -e INCLUDE_DOCKER=$include_docker \
+              -e ENABLE_STORE=${{ inputs.enable_store }} \
               -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
               -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
               -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
