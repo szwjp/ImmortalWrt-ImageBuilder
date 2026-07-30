@@ -13,9 +13,21 @@ on:
           - '24'
           - '25'
       luci_version:
-        description: "完整版本号 (23 固定 23.05.4 无需修改; 24 示例 24.10.6; 25 示例 25.12.0-rc2)"
+        description: "完整版本号 (须与主版本匹配)"
         required: true
         default: "24.10.6"
+        type: choice
+        options:
+          - 23.05.4
+          - 24.10.0
+          - 24.10.1
+          - 24.10.2
+          - 24.10.3
+          - 24.10.4
+          - 24.10.5
+          - 24.10.6
+          - 25.12.0-rc1
+          - 25.12.0-rc2
       output_format:
         description: "输出格式"
         required: true
@@ -78,8 +90,14 @@ jobs:
         run: |
           version="${{ inputs.version }}"
           luci_version="${{ inputs.luci_version }}"
-          if [[ "$version" == "23" && "$luci_version" != "23.05.4" ]]; then
-            echo "::warning::版本 23 仅支持 23.05.4，已自动修正"
+          case "$version" in
+            23) expected_prefix="23." ;;
+            24) expected_prefix="24." ;;
+            25) expected_prefix="25." ;;
+          esac
+          if [[ "$luci_version" != ${expected_prefix}* ]]; then
+            echo "::error::主版本 $version 与完整版本号 $luci_version 不匹配！"
+            exit 1
           fi
           if [[ "${{ inputs.enable_pppoe }}" == "yes" ]]; then
             if [[ -z "${{ inputs.pppoe_account }}" || -z "${{ inputs.pppoe_password }}" ]]; then
