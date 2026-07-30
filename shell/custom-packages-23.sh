@@ -1,5 +1,5 @@
 #!/bin/bash
-# 23.05.4 版本专用软件包
+# 23.05.x 版本专用软件包
 
 # 公共基础包
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES curl"

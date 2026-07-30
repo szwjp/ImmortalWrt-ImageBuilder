@@ -18,7 +18,7 @@ on:
         default: "24.10.6"
         type: choice
         options:
-          - 23.05.4
+          - 23.05.7
           - 24.10.0
           - 24.10.1
           - 24.10.2
@@ -124,11 +124,7 @@ jobs:
           profile="${{ inputs.profile }}"
           include_docker="${{ inputs.include_docker }}"
 
-          if [ "$version" = "23" ]; then
-            image_tag="23.05.4"
-          else
-            image_tag="$luci_version"
-          fi
+          image_tag="$luci_version"
 
           if [ "$version" = "25" ]; then
             config_file="imm25.config"
