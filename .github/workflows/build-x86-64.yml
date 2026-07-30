@@ -26,8 +26,8 @@ on:
           - 24.10.4
           - 24.10.5
           - 24.10.6
-          - 25.12.0-rc1
-          - 25.12.0-rc2
+          - 25.12.0
+          - 25.12.1
       output_format:
         description: "输出格式"
         required: true
