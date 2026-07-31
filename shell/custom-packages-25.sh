@@ -9,7 +9,7 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
 
 # 25.12 版本特定包
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-package-manager-zh-cn"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-filemanager-zh-cn"
+#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-filemanager-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-argon"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-argon-config"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-argon-config-zh-cn"
