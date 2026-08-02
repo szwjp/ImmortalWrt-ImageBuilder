@@ -83,7 +83,7 @@ elif [ "$count" -gt 1 ]; then
     uci set network.wan6.proto='dhcpv6'
 
     # 查找 br-lan 设备 section
-    section=$(uci show network | awk -F '[.=]' '/\.@?device\[\d+\]\.name=.br-lan.$/ {print $2; exit}')
+    section=$(uci show network | awk -F '[.=]' '/\.@?device\[[0-9]+\]\.name=.br-lan.$/ {print $2; exit}')
     if [ -z "$section" ]; then
         echo "error: cannot find device 'br-lan', LAN ports not configured" >>$LOGFILE
     else
@@ -183,7 +183,7 @@ if command -v dockerd >/dev/null 2>&1; then
     FW_FILE="/etc/config/firewall"
 
     # 删除所有名为 docker 的 zone
-    uci delete firewall.docker
+    uci -q delete firewall.docker
 
     # 先获取所有 forwarding 索引，倒序排列删除
     for idx in $(uci show firewall | grep "=forwarding" | cut -d[ -f2 | cut -d] -f1 | sort -rn); do
