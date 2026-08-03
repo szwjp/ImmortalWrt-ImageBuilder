@@ -1,7 +1,5 @@
 #!/bin/bash
 # 自定义软件包配置 (ImmortalWrt 25.12.x, APK)
-# 主 Web 服务器: nginx 经 uwsgi 跑 LuCI, 自签 HTTPS 监听 80/443; uhttpd 降级为 8080/8443 备用
-# nginx-full 自带 nginx-ssl-util(自签证书), nginx-mod-luci 自动拉入 uwsgi 并接线 LuCI
 
 # 公共基础包
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES curl"
