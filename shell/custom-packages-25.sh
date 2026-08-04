@@ -4,9 +4,6 @@
 # 公共基础包
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES curl"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-argon"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-argon-config"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-argon-config-zh-cn"
 
 # ============= imm 25.12.x仓库外的第三方插件apk，靠wukong-luci更新 ==========
 # 新增非常好用的文件管理器 by github sbwml
