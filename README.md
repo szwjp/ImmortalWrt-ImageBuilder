@@ -25,9 +25,7 @@ ImmortalWrt-ImageBuilder/
 │   ├── custom-packages-23.sh     # 自定义软件包配置 (23.05.x)
 │   ├── custom-packages-24.sh     # 自定义软件包配置 (24.10.x)
 │   ├── custom-packages-25.sh     # 自定义软件包配置 (25.12.x, APK)
-│   ├── prepare-packages.sh      # 软件包准备脚本 (opkg)
-│   ├── apk-prepare-packages.sh  # 软件包准备脚本 (apk)
-│   └── switch_repository.sh     # 仓库切换脚本
+│   └── prepare-packages.sh      # 软件包准备脚本 (ipk/apk 通用，参数区分)
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```
@@ -49,4 +47,5 @@ ImmortalWrt-ImageBuilder/
 
 ### 特别说明
 
-本项目构建的固件，WAN 口防火墙规则入站默认是开启的，待首次调试完毕后，建议自行关闭。操作方法：网络 - 防火墙 - WAN 的入站选择拒绝，然后保存并应用即可。
+- 本项目构建的固件，WAN 口防火墙规则入站默认是开启的，待首次调试完毕后，建议自行关闭。操作方法：网络 - 防火墙 - WAN 的入站选择拒绝，然后保存并应用即可。
+- 固件默认 root 无密码，且 SSH、ttyd（网页终端）默认监听所有网口（含 WAN）。公网或不可信网络环境下请务必：设置 root 密码、在【系统 - 登录/SSH】中限制监听接口，或关闭 ttyd。

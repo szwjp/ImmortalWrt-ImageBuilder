@@ -41,7 +41,7 @@ on:
         required: true
         default: "192.168.1.1"
       profile:
-        description: '固件大小 单位(MB)'
+        description: '固件大小 单位(MB) 多个用逗号分隔'
         required: true
         default: '1024'
       enable_store:
@@ -99,6 +99,11 @@ jobs:
             echo "::error::主版本 $version 与完整版本号 $luci_version 不匹配！"
             exit 1
           fi
+          custom_router_ip="${{ inputs.custom_router_ip }}"
+          if ! [[ "$custom_router_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "::error::路由器管理地址格式非法: $custom_router_ip"
+            exit 1
+          fi
           if [[ "${{ inputs.enable_pppoe }}" == "yes" ]]; then
             if [[ -z "${{ inputs.pppoe_account }}" || -z "${{ inputs.pppoe_password }}" ]]; then
               echo "Error: PPPoE account and password must be provided when PPPoE is enabled!"
@@ -139,6 +144,7 @@ jobs:
               -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
               -v "${{ github.workspace }}/x86-64/build.sh:/home/build/immortalwrt/build.sh" \
               -e IMM_VERSION=$version \
+              -e LUCI_VERSION=$luci_version \
               -e PROFILE=$p \
               -e INCLUDE_DOCKER=$include_docker \
               -e ENABLE_STORE=${{ inputs.enable_store }} \
