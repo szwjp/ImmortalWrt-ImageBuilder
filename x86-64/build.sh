@@ -43,7 +43,7 @@ if [ -n "$LUCI_APP_NAMES" ]; then
     echo "✅ LuCI 应用解析结果: $LUCI_PKGS"
 fi
 
-PACKAGES="$CUSTOM_PACKAGES $LUCI_PKGS"
+PACKAGES="$CUSTOM_PACKAGES $LUCI_PKGS $EXCLUDE_PACKAGES"
 
 # PACKAGES 会被塞进 ImageBuilder 的 USER_PACKAGES="..." (Makefile:361), 是双引号
 # 里的 shell 字符串: 只要里面有一个换行, make 的 shell 命令就被截断, 构建会报

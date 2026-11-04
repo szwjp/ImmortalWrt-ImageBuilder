@@ -50,6 +50,7 @@ ImmortalWrt-ImageBuilder/
 ### 包集合怎么组织
 
 - **`shell/custom-packages.sh`** 只放封装层的**核心组件**（系统基础件、网络核心、驱动、存储、引导、中文界面底线），与 `szwjp/imageBuilder` 口径一致。
+- **要排除的包**写在同一文件的 `EXCLUDE_PACKAGES`，用 ImageBuilder 的 `-包名` 语法（表示这个包不装进固件）。当前排除了 `autocore`（自动调频）——x86 的 ImageBuilder 默认会带上它，与核心集口径不一致。
 - **官方 LuCI 应用**不再写死包名，统一写在 `custom-packages.sh` 末尾的 `LUCI_APPS`（写的是**应用名**，不是包名）。构建时由 `shell/luci-apps.sh` 按本次构建版本（`LUCI_VERSION`）去官方源索引 `index.json` 查真实包名：
 
   | 应用名 | 解析规则 |

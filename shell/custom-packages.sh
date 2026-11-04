@@ -100,6 +100,12 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES i915-firmware-dmc"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-button-hotplug"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
 
+# ============= 显式排除的包 =============
+# 语法: "-包名" = 从构建里排除掉(ImageBuilder 的 PACKAGES 参数语义,
+# 见其 Makefile:144 "-\"pkgname\" in the package list means remove \"pkgname\"":
+# x86 target 的 ImageBuilder 默认带 autocore(自动调频), 与主仓库核心集口径不一致, 排除掉。
+EXCLUDE_PACKAGES="-autocore"
+
 # ============= 官方 LuCI 应用: 随构建版本动态解析 =============
 # 这里写的是"应用名", 不是包名。构建时由 shell/luci-apps.sh 按本次构建版本
 # (LUCI_VERSION) 去官方源的 index.json 里查真实包名:
