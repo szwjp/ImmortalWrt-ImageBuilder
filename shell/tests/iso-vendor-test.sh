@@ -98,6 +98,20 @@ else
     bad "iso/README.md 没有记录上游出处"
 fi
 
+# 文档与注释里不该残留外链。
+# 这些链接不参与代码运行, 但会让仓库看起来依赖外部站点, 也不利于
+# 离线阅读。出处信息用仓库名/commit 记录即可, 不需要带 URL。
+# 注意排除 iso/LICENSE: 那是上游 MIT 许可证原文, 不可改动。
+for f in "$ISO_DIR/README.md" "$ISO_DIR/info.md" "$ISO_DIR/autobuild.sh" \
+         "$ISO_DIR/supportFiles/custom/build.sh"
+do
+    if grep -qE 'https?://[^ ]*github\.com' "$f"; then
+        bad "文档/注释里残留 github 外链: ${f#$REPO_ROOT/}"
+    else
+        ok "无 github 外链: ${f#$REPO_ROOT/}"
+    fi
+done
+
 # ================================================================
 # 4. 基础镜像按 digest 钉死
 # ================================================================

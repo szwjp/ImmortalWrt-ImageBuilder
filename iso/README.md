@@ -5,9 +5,8 @@
 
 ## 出处
 
-代码最初来自第三方仓库 [`wukongdaily/img-installer`](https://github.com/wukongdaily/img-installer)
-（fork 自 `dpowers86/debian-live`），MIT 协议，作者 Daniel William Powers。
-原始许可证保留在 [`iso/LICENSE`](./LICENSE)。
+代码最初来自第三方仓库 `wukongdaily/img-installer`（fork 自 `dpowers86/debian-live`），
+MIT 协议，作者 Daniel William Powers。原始许可证保留在 [`iso/LICENSE`](./LICENSE)。
 
 搬进来的原因：原先 CI 每次构建都现 `git clone` 那个仓库再执行，等于在构建时
 运行了不受本仓库控制的代码，上游一改代码产物就跟着变，且无法复现。现在整条
@@ -21,7 +20,7 @@
 |------|------|
 | `autobuild.sh` | 重写。原版要 `cd` 进 clone 出来的目录、靠相对路径找 `supportFiles`；现在自包含，脚本所在目录即工作目录。Debian 基础镜像由 `debian:buster` 改为 `debian:buster@sha256:58ce6f12...` 按 digest 钉死，tag 指向的内容会随上游重新推送而变化。固件以只读方式挂进容器。 |
 | `supportFiles/custom/build.sh` | Debian 包源先走 HTTP 装 `ca-certificates`（`debian:buster` 基础镜像只有 91 个核心包，不含证书），装完立刻切 HTTPS，后续工具安装走加密通道。debootstrap 保持 HTTP——它的二阶段会在还没证书的 chroot 里跑 apt，走 HTTPS 会中断；而 buster 的 Release 带 GPG 签名，debootstrap 默认校验，完整性有保障。 |
-| `supportFiles/sources.list` | 由 `http://` 改为 `https://`。chroot 在 debootstrap 阶段已通过 `--include=ca-certificates` 拿到证书，所以这里能用 HTTPS。 |
+| `supportFiles/sources.list` | 由明文改为加密通道。chroot 在 debootstrap 阶段已通过 `--include=ca-certificates` 拿到证书，所以这里能用 HTTPS。 |
 | `supportFiles/custom/ddd` | 菜单文案由「Custom OpenWrt」改为「ImmortalWrt」，与本仓库实际构建的固件一致。 |
 | `supportFiles/custom/grub.cfg` | 引导菜单项名称同上。 |
 | `info.md` | 重写发布说明。删掉上游的 cpolar 加速站链接与 shields.io 徽章；修正上游说明里「LAN 口 IP 为 192.168.100.1」的错误（本仓库固件实际是 `192.168.1.1`，且可在工作流里改）。 |
@@ -52,9 +51,6 @@ bash iso/autobuild.sh <固件.img.gz>
 
 ## 更新到新的上游版本
 
-```sh
-git clone https://github.com/wukongdaily/img-installer.git /tmp/img-installer
-cd /tmp/img-installer && git checkout <目标 commit>
-# 对比 supportFiles/custom/ 与本目录 iso/supportFiles/custom/ 的差异,
-# 把上游的修复择要带过来, 同时保留上表里记录的本地改动。
-```
+上游仓库名见「出处」一节。拉取到本地后切到目标 commit，再对比
+`supportFiles/custom/` 与本目录 `iso/supportFiles/custom/` 的差异，把上游的修复
+择要带过来，同时保留上表里记录的本地改动。

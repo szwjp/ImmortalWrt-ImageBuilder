@@ -1,5 +1,6 @@
 #!/bin/bash
-# Based from https://willhaley.com/blog/custom-debian-live-environment/
+# 基于 willhaley 的 "custom debian live environment" 方案改编
+# (上游 img-installer, 见 iso/README.md 的出处说明)
 
 set -e
 

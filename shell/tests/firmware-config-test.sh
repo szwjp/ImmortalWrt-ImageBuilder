@@ -206,6 +206,16 @@ if grep -q 'uci set firewall.docker=zone' "$CUSTOM"; then
 else
   bad "docker zone 没有用 uci 写入"
 fi
+
+# docker zone 必须声明子网, 否则容器流量不归属该 zone, 三条 forwarding 全部失效,
+# 表现为容器无法联网。172.16.0.0/12 恰好覆盖 Docker 全部默认地址池
+# (172.17~172.31), 是有意选的宽范围, 不是写错的孤链。
+if grep -q "firewall.docker.subnet='172.16.0.0/12'" "$CUSTOM"; then
+  ok "docker zone 声明了 172.16.0.0/12 子网"
+else
+  bad "docker zone 缺少子网声明, 容器流量将不匹配该 zone 而无法联网"
+fi
+
 # 三条 forwarding 都要有
 if [ "$(grep -c 'uci add firewall forwarding' "$CUSTOM")" -eq 3 ]; then
   ok "三条 docker forwarding 都用 uci 添加"
