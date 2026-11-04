@@ -202,6 +202,39 @@ do
     fi
 done
 
+# ================================================================
+# 8. autobuild.sh 必须能处理"从别的目录调用 + 相对路径固件"
+# ================================================================
+# 真实踩过的坑: 脚本内部会 cd 到 iso/ 目录, 而 CI 传的固件路径是相对
+# 工作区根目录的。切目录后相对路径就断了, 报
+# "gzip: xxx.img.gz: No such file or directory"。
+# 这里不真跑 docker, 只验证路径解析这步: 从别处用相对路径调用,
+# 固件必须仍能被找到。
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/workspace"
+head -c 1024 /dev/urandom > "$TMP/workspace/fake.img"
+gzip -c "$TMP/workspace/fake.img" > "$TMP/workspace/fake.img.gz"
+
+# 把 docker 调用替换掉, 只测到解压这一步。
+sed 's|^docker run|echo "docker run (skipped)"|; s|"\$DEBIAN_IMAGE" \\|"skipped" \\|' \
+    "$ISO_DIR/autobuild.sh" > "$TMP/autobuild-nodocker.sh"
+
+mkdir -p "$TMP/iso"
+cp -r "$ISO_DIR/supportFiles" "$TMP/iso/" 2>/dev/null || true
+cp "$TMP/autobuild-nodocker.sh" "$TMP/iso/autobuild.sh"
+
+# 关键: 从 $TMP/workspace 目录用相对路径调用, 脚本却会 cd 到 $TMP/iso
+# 断言要看实际产物, 不能只看日志: 旧版脚本在解压前就会打印"解压 gzip",
+# 真正失败发生在下一步(找不到文件), 只看日志会把失败当成通过。
+(cd "$TMP/workspace" && bash "$TMP/iso/autobuild.sh" "fake.img.gz" >"$TMP/out.log" 2>&1) || true
+if [ -s "$TMP/iso/imm/custom.img" ] && cmp -s "$TMP/iso/imm/custom.img" "$TMP/workspace/fake.img"; then
+    ok "相对路径固件在脚本切换工作目录后仍可找到且解压正确"
+else
+    bad "相对路径固件在脚本切换工作目录后丢失(实际 CI 会失败)"
+    tail -3 "$TMP/out.log"
+fi
+
 echo
 echo "iso-vendor-test: 通过 $pass, 失败 $fail"
 [ "$fail" -eq 0 ] || exit 1
