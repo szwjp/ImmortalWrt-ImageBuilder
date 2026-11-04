@@ -91,6 +91,8 @@ jobs:
         run: |
           # LuCI 应用解析规则的自测(桩索引, 不联网), 规则回归即构建失败
           sh shell/tests/luci-apps-test.sh
+          # release 发布日期刷新脚本的自测(桩 gh, 不联网)
+          sh shell/tests/refresh-release-date-test.sh
 
       - name: Save Custom Router IP
         run: |
@@ -143,6 +145,7 @@ jobs:
           - 🏠 **后台地址**: ${{ inputs.custom_router_ip }}
           - 👤 **用户名**: root
           - 🔑 **密码**: 无
+          - 📦 **版本**: ${{ inputs.luci_version }}
           EOF
 
           if [ "${{ inputs.include_docker }}" == "yes" ]; then
@@ -160,6 +163,17 @@ jobs:
           files: |
             ${{ github.workspace }}/bin/targets/x86/64/*squashfs-combined-efi.img.gz
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # release 列表页显示的日期是 published_at, 它只在 release 从 draft 变成
+      # published 时刷新。上面这一步走的是"找到已有 release 并覆盖同名资产",
+      # published_at 会一直停在首次发布的时间, 页面于是显示过期日期。
+      # 这里做一次 draft -> published 往返, 让日期跟随本次构建(资产不受影响)。
+      - name: Refresh release publish date (img)
+        if: inputs.output_format == 'img'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: sh shell/refresh-release-date.sh Autobuild-x86-64
 
       - name: Copy firmware for ISO
         if: inputs.output_format == 'iso'
@@ -205,3 +219,10 @@ jobs:
           files: |
             img-installer/output/custom-installer-x86_64.iso
           token: "${{ secrets.GITHUB_TOKEN }}"
+
+      # 与 img release 同理: 刷新 published_at, 让列表页日期跟随本次构建
+      - name: Refresh release publish date (ISO)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: sh shell/refresh-release-date.sh Custom-Installer-x86_64-ISO
