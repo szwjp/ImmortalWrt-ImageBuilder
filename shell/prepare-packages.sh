@@ -1,7 +1,13 @@
 #!/bin/sh
-# 用法: prepare-packages.sh <ipk|apk>
+# 收集第三方 apk 到 packages/ 目录 (供 ImageBuilder 的 make image 使用)
+#
+# 包源: https://github.com/wukongdaily/apk.git 的 run/x86 目录
+#   - *.run 是自解压包, 用 --target/--noexec 解出其中的 .apk
+#   - 一级子目录下的 .apk 直接收集
+#
+# 用法: sh shell/prepare-packages.sh
 
-PKG_EXT="${1:?Usage: prepare-packages.sh <ipk|apk>}"
+PKG_EXT="apk"
 
 BASE_DIR="extra-packages"
 TEMP_DIR="$BASE_DIR/temp-unpack"

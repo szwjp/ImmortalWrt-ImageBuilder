@@ -1,23 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# IMM_VERSION: 23 / 24 / 25 (由 workflow 通过环境变量传入)
-: "${IMM_VERSION:?请设置 IMM_VERSION 环境变量 (23/24/25)}"
-
-case "$IMM_VERSION" in
-  23) PKG_FORMAT="ipk"; STORE_REPO="https://github.com/wukongdaily/store.git" ;;
-  24) PKG_FORMAT="ipk"; STORE_REPO="https://github.com/wukongdaily/store.git" ;;
-  25) PKG_FORMAT="apk"; STORE_REPO="https://github.com/wukongdaily/apk.git" ;;
-  *)  echo "不支持的版本: $IMM_VERSION"; exit 1 ;;
-esac
+# 目标版本: ImmortalWrt 25.12.x (APK)
+# 23.05.x / 24.10.x (ipk) 链路已清除, 官方 docker 镜像也不再提供对应标签
+PKG_FORMAT="apk"
+STORE_REPO="https://github.com/wukongdaily/apk.git"
 
 CUSTOM_PACKAGES=""
-source "shell/custom-packages-${IMM_VERSION}.sh"
-
-if [ "$IMM_VERSION" != "25" ] && [ "${ENABLE_STORE:-false}" = "true" ]; then
-  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"
-  echo "✅ 已追加 luci-app-store"
-fi
+source "shell/custom-packages.sh"
 
 echo "第三方软件包: $CUSTOM_PACKAGES"
 echo "编译固件大小为: $PROFILE MB"
@@ -46,7 +36,7 @@ else
   echo "✅ Run files copied to extra-packages:"
   ls -lh /home/build/immortalwrt/extra-packages/*.run || true
 
-  sh shell/prepare-packages.sh "$PKG_FORMAT"
+  sh shell/prepare-packages.sh
   ls -lah /home/build/immortalwrt/packages/
 fi
 
@@ -70,20 +60,18 @@ if echo "$PACKAGES" | grep -q "luci-app-openclash"; then
     for f in files/etc/openclash/GeoIP.dat files/etc/openclash/GeoSite.dat; do
         [ -s "$f" ] && ! head -c 15 "$f" | grep -qi "<html" || { echo "Error: $f download failed or looks like HTML"; exit 1; }
     done
-    if [ "$IMM_VERSION" != "23" ]; then
-        URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
-          | grep "browser_download_url.*${PKG_FORMAT}" \
-          | head -n1 \
-          | cut -d '"' -f 4)
-        [ -n "$URL" ] || { echo "Error: no ${PKG_FORMAT} asset found in OpenClash latest release"; exit 1; }
-        echo "OpenClash latest ${PKG_FORMAT}: $URL"
-        wget -q "$URL" -P /home/build/immortalwrt/packages/
-    fi
+    URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
+      | grep "browser_download_url.*${PKG_FORMAT}" \
+      | head -n1 \
+      | cut -d '"' -f 4)
+    [ -n "$URL" ] || { echo "Error: no ${PKG_FORMAT} asset found in OpenClash latest release"; exit 1; }
+    echo "OpenClash latest ${PKG_FORMAT}: $URL"
+    wget -q "$URL" -P /home/build/immortalwrt/packages/
 else
     echo "⚪️ 未选择 luci-app-openclash"
 fi
 
-if [ "$IMM_VERSION" != "23" ] && echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
+if echo "$PACKAGES" | grep -q "luci-app-ssr-plus"; then
     echo "✅ 已选择 luci-app-ssr-plus，添加 mihomo core"
     mkdir -p files/usr/bin
     MIHOMO_VERSION=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \

@@ -4,11 +4,13 @@
 
 ## 功能特性
 
-- 支持自定义固件大小（默认 1GB，推荐 1G-2G）
+- 支持自定义固件大小（默认 1GB，支持逗号分隔多档）
 - 支持可选预安装 Docker
 - 支持按需增加第三方软件
-- 支持 24.10.x、25.12.x 等版本
+- 支持 25.12.x 版本
 - 提供 ISO 安装器格式
+
+> 23.05.x / 24.10.x (ipk) 链路已清除：官方 docker 镜像不再提供这两个版本的 x86-64 标签。
 
 ## 📁 项目功能目录树
 
@@ -18,14 +20,11 @@ ImmortalWrt-ImageBuilder/
 │   ├── build-x86-64.yml            # 统一构建工作流 (通过参数选择版本和输出格式)
 │   └── clean-workflow.yml          # 工作流清理
 ├── x86-64/                      # x86-64 平台配置目录
-│   ├── build.sh                 # 统一构建脚本 (通过 IMM_VERSION 区分版本)
-│   ├── imm.config               # 23.05.x/24.10.x 版本配置
-│   └── imm25.config             # 25.12.x 版本配置
+│   ├── build.sh                 # 统一构建脚本 (25.12.x, APK)
+│   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
-│   ├── custom-packages-23.sh     # 自定义软件包配置 (23.05.x)
-│   ├── custom-packages-24.sh     # 自定义软件包配置 (24.10.x)
-│   ├── custom-packages-25.sh     # 自定义软件包配置 (25.12.x, APK)
-│   └── prepare-packages.sh      # 软件包准备脚本 (ipk/apk 通用，参数区分)
+│   ├── custom-packages.sh       # 自定义软件包配置 (25.12.x, APK)
+│   └── prepare-packages.sh      # 软件包准备脚本 (apk)
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```
