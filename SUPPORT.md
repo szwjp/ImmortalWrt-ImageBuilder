@@ -18,8 +18,9 @@ ImmortalWrt-ImageBuilder/
 │   ├── build.sh                 # 统一构建脚本 (25.12.x, APK)
 │   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
-│   ├── custom-packages.sh       # 自定义软件包配置 (25.12.x, APK)
-│   └── prepare-packages.sh      # 软件包准备脚本 (apk)
+│   ├── custom-packages.sh       # 核心软件包配置 + 官方 LuCI 应用清单 (25.12.x, APK)
+│   ├── luci-apps.sh             # 按构建版本解析官方 LuCI 应用名 -> 真实包名
+│   └── tests/luci-apps-test.sh  # luci-apps.sh 规则自测 (不联网)
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```

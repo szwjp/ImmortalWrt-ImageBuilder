@@ -10,6 +10,8 @@
 #   - 剔除 autocore / kmod-tcp-bbr (调优偏好, 归自维护调优插件)
 #   - 剔除各应用的 luci-i18n-* (改由 LUCI_APPS 动态解析)
 #   - 显式补入 ttyd (原本是被 luci-i18n-ttyd-zh-cn 顺带带入的, 删静态表后必须显式列出)
+#
+# 非官方 LuCI 插件已全部清除, 以后统一安排; 本文件只负责官方源里的东西。
 
 #==== 系统基础（base 系统组件） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES base-files"
@@ -97,24 +99,6 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES i915-firmware-dmc"
 #==== 其他 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-button-hotplug"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
-
-# ============= 第三方插件 apk (来源: wukongdaily/apk 的 run/x86) =============
-# 第三方包不在官方 luci 源里, 无法按版本动态解析, 因此仍显式列出(含配套中文包)。
-# 新增非常好用的文件管理器 by github sbwml
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES bash quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn"
-# 极光主题和配置 by github eamonxg
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora luci-app-aurora-config luci-i18n-aurora-config-zh-cn"
-# 分区扩容 by sirpdboy
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-partexp luci-i18n-partexp-zh-cn"
-# 流量监控 by timsaya
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES bandix luci-app-bandix luci-i18n-bandix-zh-cn"
-# 新增ssr apk
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES xray-core naiveproxy luci-app-ssr-plus luci-i18n-ssr-plus-zh-cn"
-# 新增passwall2 apk
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES xray-core sing-box hysteria kmod-nft-socket kmod-nft-tproxy luci-app-passwall2 luci-i18n-passwall2-zh-cn"
-# 仓库内代理相关apk
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-nikki-zh-cn"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-openclash"
 
 # ============= 官方 LuCI 应用: 随构建版本动态解析 =============
 # 这里写的是"应用名", 不是包名。构建时由 shell/luci-apps.sh 按本次构建版本

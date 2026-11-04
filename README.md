@@ -6,11 +6,13 @@
 
 - 支持自定义固件大小（默认 1GB，支持逗号分隔多档）
 - 支持可选预安装 Docker
-- 支持按需增加第三方软件
+- 官方 LuCI 应用随构建版本动态解析
 - 支持 25.12.x 版本
 - 提供 ISO 安装器格式
 
 > 23.05.x / 24.10.x (ipk) 链路已清除：官方 docker 镜像不再提供这两个版本的 x86-64 标签。
+>
+> **非官方 LuCI 插件已全部清除**（第三方 apk 源、代理内核下载、第三方插件的固件内配置一并移除），以后统一安排。当前固件只含官方源里的包。
 
 ## 📁 项目功能目录树
 
@@ -23,8 +25,9 @@ ImmortalWrt-ImageBuilder/
 │   ├── build.sh                 # 统一构建脚本 (25.12.x, APK)
 │   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
-│   ├── custom-packages.sh       # 自定义软件包配置 (25.12.x, APK)
-│   └── prepare-packages.sh      # 软件包准备脚本 (apk)
+│   ├── custom-packages.sh       # 核心软件包配置 + 官方 LuCI 应用清单 (25.12.x, APK)
+│   ├── luci-apps.sh             # 按构建版本解析官方 LuCI 应用名 -> 真实包名
+│   └── tests/luci-apps-test.sh  # luci-apps.sh 规则自测 (不联网)
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```
@@ -56,7 +59,9 @@ ImmortalWrt-ImageBuilder/
   | mod 型包 | `luci-mod-<名>` |
   | 都不存在 | **构建失败**，并列出该版本可用的应用名 |
 
-  应用名写 `*` 表示该版本全部 LuCI 应用。第三方插件不在官方源里，仍在 `custom-packages.sh` 里显式列出。
+  应用名写 `*` 表示该版本全部 LuCI 应用。
+
+- **非官方 LuCI 插件**不在官方源里，无法按版本动态解析，因此当前**全部清除**，以后统一安排。需要时再按统一方案接回（届时会带上自己的包源、版本解析与固件内配置）。
 
 ### 特别说明
 
