@@ -25,25 +25,16 @@ echo "pppoe-settings written (enable_pppoe=${ENABLE_PPPOE}, account=${PPPOE_ACCO
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
 
-# ---- 官方 LuCI 应用: 按本次构建版本动态解析 ----
-# custom-packages.sh 里写的是应用名(LUCI_APPS), 这里按 LUCI_VERSION 去官方源的
-# index.json 查真实包名; 该版本没有这个应用就直接失败并列出可选项。
-LUCI_APP_NAMES="$LUCI_APPS"
-if [ "$INCLUDE_DOCKER" = "yes" ]; then
-    LUCI_APP_NAMES="$LUCI_APP_NAMES dockerman"
-fi
-LUCI_PKGS=""
-if [ -n "$LUCI_APP_NAMES" ]; then
-    if [ -z "${LUCI_VERSION:-}" ]; then
-        echo "❌ 解析 LuCI 应用需要 LUCI_VERSION (由 workflow 传入)" >&2
-        exit 1
-    fi
-    echo "🔄 按版本 $LUCI_VERSION 解析 LuCI 应用: $LUCI_APP_NAMES"
-    LUCI_PKGS=$(sh shell/luci-apps.sh "$LUCI_VERSION" $LUCI_APP_NAMES) || exit 1
-    echo "✅ LuCI 应用解析结果: $LUCI_PKGS"
-fi
+# 包清单 = 核心集 + 排除项。官方 LuCI 应用的包名已直接写在
+# shell/custom-packages.sh 的「ImmortalWrt 官方 LuCI 应用」区段里, 不再按版本解析。
+PACKAGES="$CUSTOM_PACKAGES $EXCLUDE_PACKAGES"
 
-PACKAGES="$CUSTOM_PACKAGES $LUCI_PKGS $EXCLUDE_PACKAGES"
+# Docker 插件按 workflow 的 include_docker 输入决定是否装。
+# luci-i18n-dockerman-zh-cn 的依赖闭包会自动带出 luci-app-dockerman /
+# dockerd / docker / docker-compose, 只列这一条即可。
+if [ "$INCLUDE_DOCKER" = "yes" ]; then
+    PACKAGES="$PACKAGES luci-i18n-dockerman-zh-cn"
+fi
 
 # PACKAGES 会被塞进 ImageBuilder 的 USER_PACKAGES="..." (Makefile:361), 是双引号
 # 里的 shell 字符串: 只要里面有一个换行, make 的 shell 命令就被截断, 构建会报

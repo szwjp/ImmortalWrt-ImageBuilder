@@ -20,7 +20,7 @@ bad() { fail=$((fail + 1)); echo "  ❌ $1"; }
 
 [ -f "$SRC" ] || { echo "❌ 找不到 $SRC" >&2; exit 1; }
 
-# ---- 从源文件里取出三段清单 ----
+# ---- 从源文件里取出清单 ----
 # 原始字符串(raw)与拆分后的词表(words)都要:
 #   raw  用来校验"整体格式"(不能有多余空格/换行/非法字符),
 #        否则 "ac me" 这种带空格的错误会在按空格拆分后变成两个合法单词而被漏掉
@@ -31,18 +31,13 @@ core_raw=$(grep -E '^[[:space:]]*CUSTOM_PACKAGES=' "$SRC" \
   | sed 's/.*CUSTOM_PACKAGES="\$CUSTOM_PACKAGES //; s/"$//' \
   | tr '\n' ' ' | sed 's/ *$//')
 
-luci_apps_raw=$(grep -E '^[[:space:]]*LUCI_APPS=' "$SRC" \
-  | sed 's/^[[:space:]]*LUCI_APPS="//; s/"$//')
-
 exclude_raw=$(grep -E '^[[:space:]]*EXCLUDE_PACKAGES=' "$SRC" \
   | sed 's/^[[:space:]]*EXCLUDE_PACKAGES="//; s/"$//')
 
 core_pkgs=$(printf '%s\n' "$core_raw" | tr ' ' '\n' | grep -v '^$')
-luci_apps=$(printf '%s\n' "$luci_apps_raw" | tr ' ' '\n' | grep -v '^$')
 exclude_pkgs=$(printf '%s\n' "$exclude_raw" | tr ' ' '\n' | grep -v '^$')
 
 core_count=$(printf '%s\n' "$core_pkgs" | grep -c .)
-apps_count=$(printf '%s\n' "$luci_apps" | grep -c .)
 
 # 1. 核心集非空
 if [ "$core_count" -gt 0 ]; then
@@ -73,26 +68,35 @@ else
   bad "核心集有重复: $(echo "$dup" | tr '\n' ' ')"
 fi
 
-# 3. 核心集里不能出现 luci-app-* / luci-mod-*
-#    这两类是"某个 LuCI 应用本体", 属于 luci-apps.sh 按版本动态解析的职责。
-#    核心集里写死它们, 就等于绕过了版本解析: 某个版本没有这个包时会构建失败,
-#    或者静默装不上。核心集只允许 luci 本体和底线中文界面包。
-stat_luci=$(printf '%s\n' "$core_pkgs" | grep -E '^luci-(app|mod)-' || true)
-if [ -z "$stat_luci" ]; then
-  ok "核心集无写死的 luci-app-*/luci-mod-* (交给 luci-apps.sh 按版本解析)"
+# 3. 静态表里的 LuCI 应用只能写 luci-i18n-* 形式
+#    官方 LuCI 应用的包名直接写在 custom-packages.sh 里(不做按版本解析),
+#    因此包名必须写对。写错的形式有两种典型:
+#      - 写成 luci-app-<名> / luci-mod-<名>: 这是应用本体, 装了没有中文界面
+#      - 写成 luci-i18n-<名>-zh-cn 但该应用其实没有中文翻译: 装不上, 构建失败
+#    这里只能静态查"形式对不对", 查不了"该版本有没有这个包"(那是构建期的事)。
+non_i18n=$(printf '%s\n' "$core_pkgs" \
+  | grep -E '^luci-' \
+  | grep -vE '^luci(-i18n-[a-z0-9._-]+)?$' || true)
+if [ -z "$non_i18n" ]; then
+  ok "LuCI 包的写法合规(luci 本体 / luci-i18n-<名>-zh-cn)"
 else
-  bad "核心集里写死了 luci-app-*/luci-mod-*: $(echo "$stat_luci" | tr '\n' ' ')"
+  bad "LuCI 包写法不合规: $(echo "$non_i18n" | tr '\n' ' ')"
 fi
 
-# 4. 核心集里不该有各应用的 luci-i18n-* 静态表
-#    底线三个(base/firewall/package-manager)是例外: 它们属于底线中文界面, 明确保留。
-i18n_static=$(printf '%s\n' "$core_pkgs" \
-  | grep -E '^luci-i18n-' \
-  | grep -vE '^luci-i18n-(base|firewall|package-manager)-zh-cn$' || true)
-if [ -z "$i18n_static" ]; then
-  ok "核心集无应用级 luci-i18n-* 静态表(仅保留 base/firewall/package-manager 底线包)"
+# 4. 底线中文界面三件套必须在核心集里
+#    这三个是底线界面(基础界面/防火墙/软件包页)的中文包, 少了任何一个,
+#    首次开机的 WebUI 就不是中文。静态表里不要再重复写它们(会被第 2 条抓到)。
+for p in luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn; do
+  if ! printf '%s\n' "$core_pkgs" | grep -qx -- "$p"; then
+    bad "核心集缺底线包: $p"
+  fi
+done
+if printf '%s\n' "$core_pkgs" \
+  | grep -E '^luci-i18n-(base|firewall|package-manager)-zh-cn$' \
+  | grep -c . | grep -qx 3; then
+  ok "底线中文界面三件套齐全"
 else
-  bad "核心集里写死了应用级 luci-i18n-*: $(echo "$i18n_static" | tr '\n' ' ')"
+  bad "底线中文界面三件套不齐或重复"
 fi
 
 # 5. 排除项格式: 必须是 "-包名"
@@ -164,126 +168,61 @@ else
   bad "被排除的包同时出现在核心集里:$conflict"
 fi
 
-# 10. LUCI_APPS 的每个条目都能被 luci-apps.sh 接受
-#     这里不自己重新实现一遍"合法应用名"的判定, 而是直接调用 luci-apps.sh,
-#     用它自己的校验规则说话(它的规则是: 非空 + 只含 [a-zA-Z0-9._+-])。
-#     理由: 自己复制的规则迟早会和被测脚本不一致, 断言就成了空转。
-#     做法: 按 LUCI_APPS 的条目造一个桩索引(每个条目都放进去), 让 luci-apps.sh
-#     解析一遍。它若认为某个条目非法, 会报"应用名非法"并退出非 0。
-#
-#     注: LUCI_APPS 是空格分隔的清单, "ac me" 是两个条目(ac / me), 不是错误写法;
-#     真正会失败的是"某个条目在索引里不存在", 那是构建期由 luci-apps.sh 报的,
-#     不属于本测试的静态职责。
-STUB_DIR=$(mktemp -d)
-trap 'rm -rf "$STUB_DIR"' EXIT
-stub_index="$STUB_DIR/index.json"
-{
-  echo '{'
-  echo '  "packages": {'
-  first=1
-  for a in $luci_apps; do
-    for cand in "luci-app-$a" "luci-i18n-$a-zh-cn"; do
-      [ "$first" -eq 1 ] || echo ','
-      first=0
-      echo "    \"$cand\": \"1.0-r1\""
-    done
-    # 以 luci- 开头的条目走"完整包名直接查"路径, 桩里也要有它本身
-    case "$a" in
-      luci-*) [ "$first" -eq 1 ] || echo ','; first=0; echo "    \"$a\": \"1.0-r1\"" ;;
-    esac
-  done
-  echo
-  echo '  }'
-  echo '}'
-} > "$stub_index"
-
-luci_out=$(LUCI_APPS_INDEX="$stub_index" LUCI_APPS_CACHE="$STUB_DIR/cache" \
-  sh "$REPO_ROOT/shell/luci-apps.sh" 25.12.2 $luci_apps 2>"$STUB_DIR/err")
-luci_rc=$?
-if [ "$luci_rc" -eq 0 ]; then
-  ok "LUCI_APPS 全部条目被 luci-apps.sh 接受($apps_count 个)"
+# 10. 静态表里启用的 LuCI 应用, 包名形式必须正确
+#     luci-i18n-<名>-zh-cn 是官方源里中文语言包的标准命名。
+#     这里检查的是"写法", 不是"该版本有没有这个包"(后者是构建期 apk 报错的)。
+#     另: 静态表里的包名如果拼错(如 luci-i18n-adblock-zhcn), 静态查不出来,
+#     但 apk 在装包时会直接失败 —— 构建不会静默出错, 这点是安全的。
+luci_pkgs=$(printf '%s
+' "$core_pkgs" | grep -E '^luci-i18n-' || true)
+luci_count=$(printf '%s\n' "$luci_pkgs" | grep -c .)
+if [ "$luci_count" -gt 0 ]; then
+  ok "静态表里启用了 $luci_count 个 LuCI 中文包"
 else
-  bad "luci-apps.sh 拒绝了某些 LUCI_APPS 条目: $(grep -v '^$' "$STUB_DIR/err" | head -3 | tr '\n' ' ')"
-fi
-if grep -q '应用名非法' "$STUB_DIR/err" 2>/dev/null; then
-  bad "LUCI_APPS 含非法应用名: $(grep '应用名非法' "$STUB_DIR/err" | head -3 | tr '\n' ' ')"
-else
-  ok "LUCI_APPS 无非法应用名"
+  bad "静态表里一个 LuCI 中文包都没启用"
 fi
 
-# 11. LUCI_APPS 无重复
-dup_app=$(printf '%s\n' "$luci_apps" | sort | uniq -d)
-if [ -z "$dup_app" ]; then
-  ok "LUCI_APPS 无重复应用"
+# 11. 静态表里启用的包无重复
+#     (第 2 条已在整体核心集上查过重复, 这里对 LuCI 子集再查一次,
+#      便于报错时直接指向是哪几个包重了)
+dup_luci=$(printf '%s\n' "$luci_pkgs" | sort | uniq -d)
+if [ -z "$dup_luci" ]; then
+  ok "静态表里的 LuCI 包无重复"
 else
-  bad "LUCI_APPS 有重复应用: $(echo "$dup_app" | tr '\n' ' ')"
+  bad "静态表里的 LuCI 包有重复: $(echo "$dup_luci" | tr '\n' ' ')"
 fi
 
-# 12. LUCI_APPS 解析出来的包名与核心集无重名(不会重复装包)
-#     用 luci-apps.sh 的真实解析结果来比对, 不自己枚举候选名:
-#     解析规则以后若变了(新增候选形式), 这里自动跟着变。
-resolved=$(printf '%s\n' "$luci_out" | tr ' ' '\n' | grep -v '^$' | LC_ALL=C sort -u)
-overlap=""
-for r in $resolved; do
-  if printf '%s\n' "$core_pkgs" | grep -qx -- "$r"; then
-    overlap="$overlap $r"
-  fi
-done
-if [ -z "$overlap" ]; then
-  ok "LUCI_APPS 解析结果与核心集无重名(不会重复装包)"
+# 12. 静态表里的包名必须符合官方命名规范
+#     luci-i18n-<名>-zh-cn: <名> 部分只允许小写字母/数字/./_/-
+bad_name=$(printf '%s\n' "$luci_pkgs" | grep -vE '^luci-i18n-[a-z0-9._-]+-zh-cn$' || true)
+if [ -z "$bad_name" ]; then
+  ok "静态表里的包名符合 luci-i18n-<名>-zh-cn 规范"
 else
-  bad "LUCI_APPS 解析结果与核心集重名:$overlap"
+  bad "静态表里包名不合规范: $(echo "$bad_name" | tr '\n' ' ')"
 fi
 
-# 13. 底线三件套必须在核心集里
-#     这三个是底线中文界面, 不在 LUCI_APPS 里(见 custom-packages.sh 注释),
-#     少了任何一个, 首次开机的 WebUI 就不是中文。
-missing_base=""
-for p in luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn; do
-  if ! printf '%s\n' "$core_pkgs" | grep -qx -- "$p"; then
-    missing_base="$missing_base $p"
-  fi
-done
-if [ -z "$missing_base" ]; then
-  ok "底线中文界面三件套齐全"
+# 13. 静态表里不能有 luci-i18n-<名>-zh-cn 与 luci-i18n-<名>-zh-cn 以外的大小写混写
+#     ( apk 包名区分大小写, 写成 LuCI-I18N-... 之类的会装不上)
+mixed_case=$(printf '%s\n' "$luci_pkgs" | grep -E '[A-Z]' || true)
+if [ -z "$mixed_case" ]; then
+  ok "静态表里的包名无大写字母"
 else
-  bad "核心集缺底线包:$missing_base"
+  bad "静态表里包名含大写字母: $(echo "$mixed_case" | tr '\n' ' ')"
 fi
 
-# 14. 底线三件套不能同时出现在 LUCI_APPS 里
-#     它们已经是核心集的包, 再写进 LUCI_APPS 会解析出同一个包名(第 12 条会报),
-#     这里单独点명, 便于定位到底是哪里写重了。
-#     两条路径都查: 应用名"base", 以及直接写完整包名"luci-i18n-base-zh-cn"。
-in_apps=""
-for p in base firewall package-manager; do
-  if printf '%s\n' "$luci_apps" | grep -qx -- "$p"; then
-    in_apps="$in_apps $p"
-  fi
-  if printf '%s\n' "$luci_apps" | grep -qx -- "luci-i18n-$p-zh-cn"; then
-    in_apps="$in_apps luci-i18n-$p-zh-cn"
-  fi
-done
-if [ -z "$in_apps" ]; then
-  ok "底线三件套未重复出现在 LUCI_APPS"
+# 14. docker 插件的包不能在静态表里启用
+#     它由 workflow 的 include_docker 输入决定, 由 build.sh 按需追加。
+#     若静态表里也启用, 就变成了"无论 include_docker 选什么都装",
+#     输入项失效(用户选 no 也还是会装上)。
+if printf '%s\n' "$core_pkgs" | grep -qx -- 'luci-i18n-dockerman-zh-cn'; then
+  bad "静态表里启用了 luci-i18n-dockerman-zh-cn, 会让 include_docker 输入项失效"
 else
-  bad "底线应用同时写进了 LUCI_APPS:$in_apps"
+  ok "docker 插件不在静态表里(由 include_docker 输入项控制)"
 fi
 
-# 14b. LUCI_APPS 里不该出现完整包名
-#      这个清单的语义是"应用名"(见 custom-packages.sh 注释), 由 luci-apps.sh
-#      按版本解析成真实包名。直接写完整包名虽然 luci-apps.sh 也支持(直接查),
-#      但它绕过了版本解析: 该版本没有这个包时构建会失败, 或者装的是上个
-#      版本才有的包。应用名才是这里该写的东西。
-full_pkg=$(printf '%s\n' "$luci_apps" | grep -E '^luci-' || true)
-if [ -z "$full_pkg" ]; then
-  ok "LUCI_APPS 里写的都是应用名, 无完整包名"
-else
-  bad "LUCI_APPS 里写了完整包名(应写应用名): $(echo "$full_pkg" | tr '\n' ' ')"
-fi
 
-# 15. build.sh 必须真的用上 EXCLUDE_PACKAGES 与 luci-apps.sh
-#     这两处是"配置写了但没接线"的断点: 排除项不并进 PACKAGES 就是空转,
-#     LUCI_APPS 不经过解析就是一堆无效应用名。
+# 15. build.sh 必须真的用上 EXCLUDE_PACKAGES
+#     这里是"配置写了但没接线"的断点: 排除项不并进 PACKAGES 就是空转。
 BUILD_SH="$REPO_ROOT/x86-64/build.sh"
 if [ ! -f "$BUILD_SH" ]; then
   bad "找不到 $BUILD_SH"
@@ -293,16 +232,26 @@ else
   else
     bad "build.sh 没引用 EXCLUDE_PACKAGES, 排除项不会生效"
   fi
-  if grep -q 'luci-apps\.sh' "$BUILD_SH"; then
-    ok "build.sh 用上了 luci-apps.sh 做版本解析"
+  # PACKAGES 必须把核心集和排除项都并进去
+  if grep -qE 'PACKAGES="\$CUSTOM_PACKAGES .*\$EXCLUDE_PACKAGES"' "$BUILD_SH"; then
+    ok "build.sh 的 PACKAGES 并入了核心集与排除项"
   else
-    bad "build.sh 没调用 luci-apps.sh, LUCI_APPS 不会被解析成包名"
+    bad "build.sh 的 PACKAGES 拼装没有同时包含核心集与排除项, 请核对拼接"
   fi
-  # PACKAGES 必须把三段都并进去
-  if grep -qE 'PACKAGES="\$CUSTOM_PACKAGES .*\$LUCI_PKGS .*\$EXCLUDE_PACKAGES"' "$BUILD_SH"; then
-    ok "build.sh 的 PACKAGES 并入了核心集/解析结果/排除项三段"
+  # 已删除按版本解析机制, build.sh 里不该再有残留引用
+  if grep -q 'luci-apps\.sh' "$BUILD_SH"; then
+    bad "build.sh 里还引用着已删除的 luci-apps.sh"
   else
-    bad "build.sh 的 PACKAGES 拼装没有同时包含三段, 请核对拼接顺序"
+    ok "build.sh 无已删除机制的残留引用"
+  fi
+  # include_docker 输入项必须仍然有效(按需追加 dockerman 包)。
+  # 注意要匹配"真正在追加包名的那一行", 而不是文件里出现过这个词:
+  # 注释里也写着 luci-i18n-dockerman-zh-cn, 只 grep 关键词会误判成已接线。
+  if grep -qE '^\s*PACKAGES="\$PACKAGES .*luci-i18n-dockerman-zh-cn"' "$BUILD_SH" \
+     && grep -q 'INCLUDE_DOCKER' "$BUILD_SH"; then
+    ok "build.sh 按 include_docker 追加 docker 插件包"
+  else
+    bad "build.sh 没按 include_docker 追加 dockerman 包, 该输入项已失效"
   fi
 fi
 

@@ -19,12 +19,11 @@ ImmortalWrt-ImageBuilder/
 │   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
 │   ├── custom-packages.sh       # 核心软件包配置 + 官方 LuCI 应用清单 (25.12.x, APK)
-│   ├── luci-apps.sh             # 按构建版本解析官方 LuCI 应用名 -> 真实包名
 │   ├── refresh-release-date.sh  # 刷新 release 的 published_at, 让列表页日期跟随构建
 │   └── tests/                   # 构建脚本自测 (全部不联网, CI 里跑)
-│       ├── luci-apps-test.sh            # luci-apps.sh 解析规则自测
-│       ├── custom-packages-test.sh      # 核心集/排除项/LUCI_APPS 静态断言
-│       └── refresh-release-date-test.sh # refresh-release-date.sh 行为自测
+│       ├── run-all.sh                    # 统一入口, 依次跑下面全部测试
+│       ├── custom-packages-test.sh       # 核心集/排除项/静态表 静态断言
+│       └── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```
