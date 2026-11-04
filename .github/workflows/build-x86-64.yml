@@ -103,10 +103,11 @@ jobs:
           profile="${{ inputs.profile }}"
           include_docker="${{ inputs.include_docker }}"
 
-          # 官方 docker 镜像只有滚动标签 x86-64-openwrt-25.12 与固定标签
-          # x86-64-openwrt-25.12.2, 没有点版本标签; 点版本号只用于
-          # CONFIG_VERSION_REPO(固件实际去哪个版本的源取包)
-          image_tag="x86-64-openwrt-25.12"
+          # 官方 docker 镜像有点版本标签 x86-64-openwrt-<version>。
+          # 镜像版本必须跟 luci_version 一致: ImageBuilder tarball 里的
+          # repositories 文件写死了点版本(apk 实际从那儿取包), 而 luci_version
+          # 还决定了解析用的 index.json 和固件运行时的源, 三者要同版本。
+          image_tag="x86-64-openwrt-${luci_version}"
 
           config_file="imm.config"
 
