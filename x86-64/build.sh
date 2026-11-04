@@ -41,12 +41,26 @@ else
 fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
-PACKAGES="$CUSTOM_PACKAGES"
 
+# ---- 官方 LuCI 应用: 按本次构建版本动态解析 ----
+# custom-packages.sh 里写的是应用名(LUCI_APPS), 这里按 LUCI_VERSION 去官方源的
+# index.json 查真实包名; 该版本没有这个应用就直接失败并列出可选项。
+LUCI_APP_NAMES="$LUCI_APPS"
 if [ "$INCLUDE_DOCKER" = "yes" ]; then
-    PACKAGES="$PACKAGES luci-i18n-dockerman-zh-cn"
-    echo "Adding package: luci-i18n-dockerman-zh-cn"
+    LUCI_APP_NAMES="$LUCI_APP_NAMES dockerman"
 fi
+LUCI_PKGS=""
+if [ -n "$LUCI_APP_NAMES" ]; then
+    if [ -z "${LUCI_VERSION:-}" ]; then
+        echo "❌ 解析 LuCI 应用需要 LUCI_VERSION (由 workflow 传入)" >&2
+        exit 1
+    fi
+    echo "🔄 按版本 $LUCI_VERSION 解析 LuCI 应用: $LUCI_APP_NAMES"
+    LUCI_PKGS=$(sh shell/luci-apps.sh "$LUCI_VERSION" $LUCI_APP_NAMES) || exit 1
+    echo "✅ LuCI 应用解析结果: $LUCI_PKGS"
+fi
+
+PACKAGES="$CUSTOM_PACKAGES $LUCI_PKGS"
 
 if echo "$PACKAGES" | grep -q "luci-app-openclash"; then
     echo "✅ 已选择 luci-app-openclash，添加 openclash core"
