@@ -20,10 +20,24 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES libustream-openssl"
 #==== 包管理器（APK） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES apk-openssl"
 #==== Web 管理界面 ====
+# luci 与 luci-nginx 是同一套 LuCI 的两种 Web 后端实现:
+#   luci      -> uhttpd + lua/ucode CGI, LuCI 界面由 uhttpd 提供
+#   luci-nginx-> nginx + uwsgi, LuCI 界面由 nginx 反代到 uwsgi
+# 两者共用 luci-base 等核心包, 不存在文件冲突, 可以共存。
+#
+# 本固件采用 nginx 作为主 Web 服务器(80/443), uhttpd 退居辅助(8080/8443),
+# 因此两个集合都装: luci-nginx 提供 nginx 后端, luci 保留 uhttpd 作为备用入口。
+# (uhttpd 由 luci-light 依赖带入, 端口调整见 files/etc/uci-defaults/99-custom.sh)
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-nginx"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-base-zh-cn"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-firewall-zh-cn"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-package-manager-zh-cn"
+# nginx 本体 + LuCI 适配模块。
+# nginx-full 提供 nginx 二进制(含 SSL), nginx-mod-luci 提供 LuCI 的 nginx
+# location 配置与 uwsgi 联动; luci-nginx 依赖它们, 这里显式列出以确保装全。
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-full"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-mod-luci"
 #==== 网络核心与防火墙 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES netifd"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES firewall4"

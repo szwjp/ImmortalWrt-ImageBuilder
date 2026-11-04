@@ -149,6 +149,49 @@ uci -q delete ttyd.@ttyd[0].interface
 # 设置所有网口可连接 SSH
 uci set dropbear.@dropbear[0].Interface=''
 
+# ============ Web 服务器: nginx 主(80/443) + uhttpd 辅(8080/8443) ============
+# nginx-mod-luci 自带的 /etc/uci-defaults/60_nginx-luci-support 会执行
+# "uhttpd disable" 并把 uhttpd 停掉, 把 80/443 独占给 nginx。
+# 本固件要保留 uhttpd 作为辅助 Web 服务器(备用入口), 所以这里把 uhttpd
+# 重新拉起来并改到 8080/8443, 让 80/443 完整归 nginx。
+#
+# 执行顺序: 60_nginx-luci-support 先跑, 99-custom.sh 后跑, 所以这里的设置
+# 会覆盖 60 里的 disable/stop。
+if [ -x /etc/init.d/nginx ] && [ -x /etc/init.d/uhttpd ]; then
+    echo "Configuring web servers: nginx(80/443) + uhttpd(8080/8443)" >>$LOGFILE
+
+    # uhttpd 监听端口改为 8080/8443。
+    # listen_http/listen_https 是 list 类型, 多个地址要 add_list 逐条加,
+    # 不能用 uci set 一次塞两个值(带空格的引号会被 uci 解析器当成整体)。
+    uci -q delete uhttpd.main.listen_http
+    uci -q delete uhttpd.main.listen_https
+    uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
+    uci add_list uhttpd.main.listen_http='[::]:8080'
+    uci add_list uhttpd.main.listen_https='0.0.0.0:8443'
+    uci add_list uhttpd.main.listen_https='[::]:8443'
+
+    # uhttpd 不做 HTTP->HTTPS 跳转: 它已是备用入口, 且 nginx 在 80 上
+    # 自行 302 跳 HTTPS, 两者行为保持一致即可。
+    uci set uhttpd.main.redirect_https='0'
+
+    uci commit uhttpd
+
+    # 启动顺序: 先起 nginx 占用 80/443, 再起 uhttpd。
+    # 若顺序反了, uhttpd 会先绑上 80 导致 nginx bind 失败。
+    /etc/init.d/nginx enable
+    /etc/init.d/uwsgi enable
+    /etc/init.d/uhttpd enable
+
+    # uhttpd 需要自签证书才能起 HTTPS(8443), 证书由 uhttpd 的 cert 段生成
+    /etc/init.d/uhttpd start >/dev/null 2>&1
+    /etc/init.d/uwsgi start >/dev/null 2>&1
+    /etc/init.d/nginx start >/dev/null 2>&1
+
+    echo "Web servers configured, nginx:80/443, uhttpd:8080/8443" >>$LOGFILE
+else
+    echo "nginx or uhttpd init script not found, skip web server config" >>$LOGFILE
+fi
+
 # 显式提交本脚本改动过的包。
 # 不用裸 "uci commit"(提交全部包): 那会把其它脚本在同一批次里留下的半成品
 # 改动一起写盘。uci commit 一次只能提交一个包(多包会报 usage 错), 所以逐个提交。
