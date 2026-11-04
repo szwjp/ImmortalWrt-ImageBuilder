@@ -1,1 +1,5 @@
 .DS_Store
+
+# ISO 构建的中间产物与输出
+iso/imm/
+iso/output/

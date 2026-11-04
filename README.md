@@ -13,6 +13,8 @@
 > 23.05.x / 24.10.x (ipk) 链路已清除：官方 docker 镜像不再提供这两个版本的 x86-64 标签。
 >
 > **非官方 LuCI 插件已全部清除**（第三方 apk 源、代理内核下载、第三方插件的固件内配置一并移除），以后统一安排。当前固件只含官方源里的包。
+>
+> **ISO 安装器链路已改为仓库内自带**：原先每次构建都现 clone 第三方仓库 `wukongdaily/img-installer` 再执行，构建产物会随上游改动而变化。现已把所需代码 vendored 进 `iso/` 目录，CI 不再 clone 任何外部仓库。详见 [`iso/README.md`](iso/README.md)。
 
 ## 📁 项目功能目录树
 
@@ -32,8 +34,13 @@ ImmortalWrt-ImageBuilder/
 │       ├── custom-packages-test.sh       # 核心集/排除项/静态表 静态断言
 │       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
 │       └── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
-└── files/etc/uci-defaults/      # 固件自定义文件目录
-    └── 99-custom.sh             # 固件首次启动配置脚本
+├── files/etc/uci-defaults/      # 固件自定义文件目录
+│   └── 99-custom.sh             # 固件首次启动配置脚本
+└── iso/                         # ISO 安装器构建 (vendored, 不再 clone 第三方仓库)
+    ├── autobuild.sh             # 固件 img.gz -> 安装器 ISO
+    ├── info.md                  # ISO 发布说明
+    ├── supportFiles/            # Debian live 环境与引导配置
+    └── README.md                # 上游出处与本地改动说明
 ```
 
 ## 操作手册

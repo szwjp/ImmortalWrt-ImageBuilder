@@ -197,32 +197,28 @@ jobs:
     if: inputs.output_format == 'iso'
 
     steps:
+      # ISO 构建脚本已 vendored 进本仓库的 iso/ 目录, 不再 clone 第三方仓库。
+      # 需要 checkout 才能拿到 iso/ 下的脚本。
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Download firmware artifact
         uses: actions/download-artifact@v4
         with:
           name: firmware-img
 
-      - name: Clone img-installer
-        run: git clone https://github.com/wukongdaily/img-installer.git
-
-      - name: Set executable permissions
-        run: |
-          chmod +x "${{ github.workspace }}/img-installer/custom.sh"
-          chmod +x "${{ github.workspace }}/img-installer/supportFiles/custom/build.sh"
-
       - name: Build ISO
         run: |
           firmware_file=$(ls *squashfs-combined-efi.img.gz)
-          cd img-installer
-          bash autobuild/autobuild.sh "../$firmware_file"
+          bash iso/autobuild.sh "$firmware_file"
 
       - name: Upload ISO to Release
         uses: softprops/action-gh-release@v2.2.1
         with:
           tag_name: "Custom-Installer-x86_64-ISO"
-          body_path: "${{ github.workspace }}/img-installer/autobuild/info.md"
+          body_path: "${{ github.workspace }}/iso/info.md"
           files: |
-            img-installer/output/custom-installer-x86_64.iso
+            iso/output/custom-installer-x86_64.iso
           token: "${{ secrets.GITHUB_TOKEN }}"
 
       # 与 img release 同理: 刷新 published_at, 让列表页日期跟随本次构建

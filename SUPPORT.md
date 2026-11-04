@@ -26,5 +26,10 @@ ImmortalWrt-ImageBuilder/
 │       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
 │       └── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
 └── files/etc/uci-defaults/      # 固件自定义文件目录
-    └── 99-custom.sh             # 固件首次启动配置脚本
+│   └── 99-custom.sh             # 固件首次启动配置脚本
+└── iso/                         # ISO 安装器构建 (vendored, 不再 clone 第三方仓库)
+    ├── autobuild.sh             # 固件 img.gz -> 安装器 ISO
+    ├── info.md                  # ISO 发布说明
+    ├── supportFiles/            # Debian live 环境与引导配置
+    └── README.md                # 上游出处与本地改动说明
 ```
