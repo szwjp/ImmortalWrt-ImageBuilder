@@ -45,6 +45,15 @@ fi
 
 PACKAGES="$CUSTOM_PACKAGES $LUCI_PKGS"
 
+# PACKAGES 会被塞进 ImageBuilder 的 USER_PACKAGES="..." (Makefile:361), 是双引号
+# 里的 shell 字符串: 只要里面有一个换行, make 的 shell 命令就被截断, 构建会报
+# "unexpected EOF while looking for matching" 而失败。这里显式拦一道, 不让它
+# 静默变成一个不存在的包名。
+if [[ "$PACKAGES" == *$'\n'* ]]; then
+  echo "❌ 包列表里出现了换行, 会破坏 make 命令行, 已中止构建" >&2
+  exit 1
+fi
+
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Building image with the following packages:"
 echo "$PACKAGES"
 

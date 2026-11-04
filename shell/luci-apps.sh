@@ -41,13 +41,18 @@ FEED_BASE="https://downloads.immortalwrt.org/releases/$VERSION/packages/x86_64/l
 CACHE_DIR="${LUCI_APPS_CACHE:-${TMPDIR:-/tmp}/luci-index-$VERSION}"
 INDEX="$CACHE_DIR/index.json"
 
+# 约定: stdout 只输出"包名列表"这一行, 其余提示一律走 stderr。
+# 调用方会用 $(...) 捕获 stdout 再塞进 make 的 USER_PACKAGES="...",
+# stdout 里多一个换行就会把 make 的 shell 命令截断, 构建直接失败。
+echo "🔄 解析 $VERSION 的 LuCI 源索引..." >&2
+
 if [ -n "${LUCI_APPS_INDEX:-}" ]; then
   INDEX="$LUCI_APPS_INDEX"
   [ -f "$INDEX" ] || { echo "❌ 指定的索引不存在: $INDEX" >&2; exit 1; }
 else
   mkdir -p "$CACHE_DIR"
   if [ ! -s "$INDEX" ]; then
-    echo "🔄 抓取 $VERSION 的 luci 源索引..."
+    echo "🔄 从 $FEED_BASE/index.json 抓取索引..." >&2
     if command -v curl >/dev/null 2>&1; then
       curl -fsSL --retry 3 --retry-delay 2 "$FEED_BASE/index.json" -o "$INDEX.tmp" \
         || { echo "❌ 拉取 luci 源索引失败: $FEED_BASE/index.json" >&2; exit 1; }

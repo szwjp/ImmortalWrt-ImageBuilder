@@ -40,7 +40,7 @@ export LUCI_APPS_INDEX="$TMP/index.json"
 export LUCI_APPS_CACHE="$TMP/cache"
 
 # 1. 有 zh-cn 翻译 -> 用 i18n 包
-out=$(sh "$LUCI_APPS" 25.12.2 ddns-go 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 ddns-go 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-i18n-ddns-go-zh-cn " ]; then
   ok "有中文翻译时解析为 luci-i18n-<名>-zh-cn"
 else
@@ -48,7 +48,7 @@ else
 fi
 
 # 2. 只有 app 没有翻译 -> 用 luci-app-*
-out=$(sh "$LUCI_APPS" 25.12.2 nolang 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 nolang 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-app-nolang " ]; then
   ok "无中文翻译时解析为 luci-app-<名>"
 else
@@ -56,7 +56,7 @@ else
 fi
 
 # 3. mod 型应用: 有 zh-cn 的优先用 i18n 包
-out=$(sh "$LUCI_APPS" 25.12.2 status 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 status 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-i18n-status-zh-cn " ]; then
   ok "mod 型应用有翻译时同样优先用 i18n 包"
 else
@@ -64,7 +64,7 @@ else
 fi
 
 # 3b. mod 型应用且没有翻译 -> 回退到 luci-mod-*
-out=$(sh "$LUCI_APPS" 25.12.2 extra 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 extra 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-mod-extra " ]; then
   ok "mod 型应用无翻译时回退到 luci-mod-<名>"
 else
@@ -72,7 +72,7 @@ else
 fi
 
 # 4. 以 luci- 开头 -> 按完整包名直接查
-out=$(sh "$LUCI_APPS" 25.12.2 luci-app-firewall 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 luci-app-firewall 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-app-firewall " ]; then
   ok "完整包名直接查命中"
 else
@@ -97,7 +97,7 @@ else
 fi
 
 # 7. 通配 * -> 该版本全部 app(有 zh 的取 zh, 没有的取 app)
-out=$(sh "$LUCI_APPS" 25.12.2 '*' 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 '*' 2>/dev/null)
 if [ $? -eq 0 ] && printf '%s' "$out" | grep -q "luci-i18n-ddns-go-zh-cn" \
    && printf '%s' "$out" | grep -q "luci-app-nolang" \
    && printf '%s' "$out" | grep -q "luci-i18n-wol-zh-cn" ; then
@@ -107,7 +107,7 @@ else
 fi
 
 # 8. 多个应用 -> 去重后输出
-out=$(sh "$LUCI_APPS" 25.12.2 ddns-go ddns-go wol 2>&1)
+out=$(sh "$LUCI_APPS" 25.12.2 ddns-go ddns-go wol 2>/dev/null)
 if [ $? -eq 0 ] && [ "$out" = "luci-i18n-ddns-go-zh-cn luci-i18n-wol-zh-cn " ]; then
   ok "多应用去重输出"
 else
@@ -128,6 +128,24 @@ if [ $? -ne 0 ] && printf '%s' "$out" | grep -q "应用名非法"; then
   ok "含 shell 元字符的应用名被拒"
 else
   bad "应用名字符集未校验: $out"
+fi
+
+# 11. stdout 只能是包名单行; 提示信息必须走 stderr
+#     调用方用 $(...) 捕获 stdout, 再塞进 ImageBuilder 的 USER_PACKAGES="..."
+#     (Makefile:361, 双引号 shell 字符串)。stdout 里只要多一个换行, make 的
+#     shell 命令就被截断, 构建报 "unexpected EOF while looking for matching" 而失败。
+stdout_only=$(sh "$LUCI_APPS" 25.12.2 ddns-go nolang 2>/dev/null)
+stderr_only=$(sh "$LUCI_APPS" 25.12.2 ddns-go nolang 2>&1 >/dev/null)
+if printf '%s' "$stdout_only" | grep -qE '^[a-zA-Z0-9._+-]+( [a-zA-Z0-9._+-]+)* ?$' \
+   && [ "$(printf '%s' "$stdout_only" | wc -l | tr -d ' ')" -eq 0 ]; then
+  ok "stdout 只有包名(单行, 不含提示文字)"
+else
+  bad "stdout 混进了提示文字或多行: [$stdout_only]"
+fi
+if printf '%s' "$stderr_only" | grep -q '🔄'; then
+  ok "进度提示走 stderr, 不污染 stdout"
+else
+  bad "stderr 里没有进度提示: [$stderr_only]"
 fi
 
 echo
