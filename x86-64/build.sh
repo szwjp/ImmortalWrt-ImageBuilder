@@ -15,11 +15,26 @@ echo "Include Docker: $INCLUDE_DOCKER"
 echo "Create pppoe-settings"
 mkdir -p /home/build/immortalwrt/files/etc/config
 
-cat << EOF > /home/build/immortalwrt/files/etc/config/pppoe-settings
-enable_pppoe=${ENABLE_PPPOE}
-pppoe_account=${PPPOE_ACCOUNT}
-pppoe_password=${PPPOE_PASSWORD}
-EOF
+# 凭据文件用 UCI 格式写, 值用双引号包裹并转义反斜杠与双引号。
+#
+# 为什么不用 shell 的 key=value 写法: 设备端 99-custom.sh 若用 . (source) 读这个
+# 文件, 密码里的 $ ' " ; 等字符会被 shell 当成语法解释 —— $$ 展开成 PID、
+# $VAR 展开成环境变量、单引号导致整个文件语法错误、分号导致命令注入。
+# UCI 的双引号值只对反斜杠和双引号做转义, 其余字符(含 $ ' ; )都是字面量,
+# 设备端用 uci get 取值, 完全不经过 shell 求值。
+#
+# 注意: UCI 单引号值内部无法表示单引号本身(parse_single_quote 无转义分支),
+# 所以这里必须用双引号。
+uci_escape_dq() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+{
+  printf "config settings 'pppoe'\n"
+  printf '\toption enabled "%s"\n' "$(uci_escape_dq "$ENABLE_PPPOE")"
+  printf '\toption account "%s"\n' "$(uci_escape_dq "$PPPOE_ACCOUNT")"
+  printf '\toption password "%s"\n' "$(uci_escape_dq "$PPPOE_PASSWORD")"
+} > /home/build/immortalwrt/files/etc/config/pppoe-settings
 
 echo "pppoe-settings written (enable_pppoe=${ENABLE_PPPOE}, account=${PPPOE_ACCOUNT:+已设置})"
 

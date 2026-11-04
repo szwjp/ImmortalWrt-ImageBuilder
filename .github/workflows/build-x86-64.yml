@@ -25,7 +25,7 @@ on:
         required: true
         default: "192.168.1.1"
       profile:
-        description: '固件大小 单位(MB) 多个用逗号分隔'
+        description: '固件大小 单位(MB)'
         required: true
         default: '1024'
       include_docker:
@@ -76,7 +76,10 @@ jobs:
               ;;
           esac
           custom_router_ip="${{ inputs.custom_router_ip }}"
-          if ! [[ "$custom_router_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+          # 逐段校验 0-255, 与 99-custom.sh 里的正则保持一致(两处必须同步)。
+          # 只校验 "四段数字" 是不够的: 999.999.999.999 也能过, 写进
+          # network.lan.ipaddr 后 netifd 无法绑定, 管理地址失联。
+          if ! [[ "$custom_router_ip" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]]; then
             echo "::error::路由器管理地址格式非法: $custom_router_ip"
             exit 1
           fi
@@ -85,6 +88,13 @@ jobs:
               echo "Error: PPPoE account and password must be provided when PPPoE is enabled!"
               exit 1
             fi
+          fi
+          # 固件大小必须是正整数(单位 MB)。原先是自由文本, 传非数字会让
+          # ROOTFS_PARTSIZE 变成无效值, 构建产物大小与预期不符。
+          profile="${{ inputs.profile }}"
+          if ! [[ "$profile" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::固件大小必须是正整数(MB), 当前: $profile"
+            exit 1
           fi
 
       - name: Run shell tests
@@ -112,26 +122,25 @@ jobs:
 
           config_file="imm.config"
 
-          IFS=',' read -r -a profile_array <<< "$profile"
-
-          for p in "${profile_array[@]}"; do
-            echo "Building for profile: $p (luci_version=$luci_version, image=$image_tag)"
-            docker run --rm -i \
-              --user root \
-              -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
-              -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
-              -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
-              -v "${{ github.workspace }}/x86-64/${config_file}:/home/build/immortalwrt/.config" \
-              -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
-              -v "${{ github.workspace }}/x86-64/build.sh:/home/build/immortalwrt/build.sh" \
-              -e LUCI_VERSION=$luci_version \
-              -e PROFILE=$p \
-              -e INCLUDE_DOCKER=$include_docker \
-              -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
-              -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
-              -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
-              immortalwrt/imagebuilder:$image_tag /bin/bash /home/build/immortalwrt/build.sh
-          done
+          # 只构建一档。ImageBuilder 的产物文件名由版本/架构/镜像类型决定,
+          # 不含 rootfs 大小(ROOTFS_PARTSIZE 只影响分区大小), 多档会写进同一个
+          # 路径互相覆盖, 最终只剩最后一档且与用户预期不符 —— 所以这里只保留单档。
+          echo "Building for profile: $profile (luci_version=$luci_version, image=$image_tag)"
+          docker run --rm -i \
+            --user root \
+            -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
+            -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
+            -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
+            -v "${{ github.workspace }}/x86-64/${config_file}:/home/build/immortalwrt/.config" \
+            -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
+            -v "${{ github.workspace }}/x86-64/build.sh:/home/build/immortalwrt/build.sh" \
+            -e LUCI_VERSION=$luci_version \
+            -e PROFILE=$profile \
+            -e INCLUDE_DOCKER=$include_docker \
+            -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
+            -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
+            -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
+            immortalwrt/imagebuilder:$image_tag /bin/bash /home/build/immortalwrt/build.sh
 
       - name: Create info
         run: |

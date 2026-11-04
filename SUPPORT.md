@@ -2,10 +2,10 @@
 
 ## x86-64 工作流
 
-| 🖥️ 工作流分类            | 处理器            | 备注         | luci版本        |
-| ---------------- | -------------- | ---------- |---------- |
-| x86-64 efi.img.gz  | Intel/AMD | EFI向下兼容传统BIOS |25.12.x |
-| x86-64 OpenWrt安装器   | Intel/AMD | ISO格式适用于任何虚拟机和任何物理机 引导后输入ddd来安装 |25.12.x |
+| 🖥️ 工作流分类            | 处理器            | 引导方式         | luci版本 | 固件大小 |
+| ---------------- | -------------- | ---------- |---------- | -------- |
+| x86-64 efi.img.gz  | Intel/AMD | EFI，向下兼容传统BIOS |25.12.x | 默认 1GB，可在工作流里改 |
+| x86-64 OpenWrt安装器   | Intel/AMD | ISO，适用任何虚拟机和物理机；引导后输入 ddd 安装 |25.12.x | 同上 |
 
 ## 📁 项目功能目录树
 
@@ -23,7 +23,8 @@ ImmortalWrt-ImageBuilder/
 │   └── tests/                   # 构建脚本自测 (全部不联网, CI 里跑)
 │       ├── run-all.sh                    # 统一入口, 依次跑下面全部测试
 │       ├── custom-packages-test.sh       # 核心集/排除项/静态表 静态断言
-│       └── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
+│       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
+│       └── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```

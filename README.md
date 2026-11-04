@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- 支持自定义固件大小（默认 1GB，支持逗号分隔多档）
+- 支持自定义固件大小（默认 1GB）
 - 支持可选预安装 Docker
 - 官方 LuCI 应用按需启用（包名直接写在配置里）
 - 支持 25.12.x 版本
@@ -30,7 +30,8 @@ ImmortalWrt-ImageBuilder/
 │   └── tests/                   # 构建脚本自测 (全部不联网, CI 里跑)
 │       ├── run-all.sh                    # 统一入口, 依次跑下面全部测试
 │       ├── custom-packages-test.sh       # 核心集/排除项/静态表 静态断言
-│       └── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
+│       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
+│       └── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
 └── files/etc/uci-defaults/      # 固件自定义文件目录
     └── 99-custom.sh             # 固件首次启动配置脚本
 ```
@@ -47,7 +48,7 @@ ImmortalWrt-ImageBuilder/
 
 - **单网口设备**：默认采用 DHCP 模式，自动获取 IP
 - **多网口设备**：默认 WAN 口采用 DHCP 模式，LAN 口 IP 为 192.168.1.1（最后一个网口为 WAN，其余为 LAN）
-- 若在工作流中勾选了拨号信息，则 WAN 口模式为 PPPoE 拨号模式
+- 若在工作流中勾选了拨号信息，则 WAN 口模式为 PPPoE 拨号模式（仅多网口设备生效）
 - 建议拨号用户使用之前重启一次光猫
 
 ### 包集合怎么组织
@@ -71,3 +72,4 @@ ImmortalWrt-ImageBuilder/
 
 - 本项目构建的固件，WAN 口防火墙规则入站默认是开启的，待首次调试完毕后，建议自行关闭。操作方法：网络 - 防火墙 - WAN 的入站选择拒绝，然后保存并应用即可。
 - 固件默认 root 无密码，且 SSH、ttyd（网页终端）默认监听所有网口（含 WAN）。公网或不可信网络环境下请务必：设置 root 密码、在【系统 - 登录/SSH】中限制监听接口，或关闭 ttyd。
+- **启用 PPPoE 时，宽带密码会以明文写入固件镜像**（首启脚本读完即删设备上的副本，但镜像本身仍含明文）。这类固件请勿公开分发。
