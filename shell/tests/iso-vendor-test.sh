@@ -160,11 +160,58 @@ fi
 # 6. 菜单文案与本仓库实际固件一致
 # ================================================================
 # 上游原样是 "Custom OpenWrt", 本仓库构建的是 ImmortalWrt。
-if grep -q 'Custom OpenWrt' "$ISO_DIR/supportFiles/custom/ddd" \
-   || grep -q 'Custom OpenWrt' "$ISO_DIR/supportFiles/custom/grub.cfg"; then
-    bad "安装器菜单仍写着 Custom OpenWrt, 与本仓库固件不符"
+# 三种引导方式各有自己的文案文件, 漏一个就会出现"EFI 菜单是 ImmortalWrt、
+# BIOS 菜单还是 Custom OpenWrt"的不一致 —— 所以逐个查, 不只查其中两个。
+menu_bad=""
+for f in ddd grub.cfg isolinux.cfg; do
+    if grep -q 'Custom OpenWrt' "$ISO_DIR/supportFiles/custom/$f"; then
+        menu_bad="$menu_bad $f"
+    fi
+done
+if [ -z "$menu_bad" ]; then
+    ok "安装器菜单文案与本仓库固件一致(ddd / grub.cfg / isolinux.cfg)"
 else
-    ok "安装器菜单文案与本仓库固件一致"
+    bad "安装器菜单仍写着 Custom OpenWrt:$menu_bad"
+fi
+
+# ================================================================
+# 6b. 安装链路的正确性护栏
+# ================================================================
+# chroot 内脚本必须 fail-fast: 它跑在 chroot 里, 容器入口的 set -e 管不到,
+# apt 失败被吞掉的后果是"构建成功但 ISO 缺包", 只能等用户装机时暴露。
+if grep -qE '^set -euo pipefail' "$ISO_DIR/supportFiles/installChroot.sh"; then
+    ok "installChroot.sh 是 fail-fast(set -euo pipefail)"
+else
+    bad "installChroot.sh 没有 fail-fast, chroot 内 apt 失败会静默产出残缺 ISO"
+fi
+
+# 归档源(buster 已 EOL)偶尔超时/断流, 两处 apt 都要有自动重试
+for f in "$ISO_DIR/supportFiles/custom/build.sh" "$ISO_DIR/supportFiles/installChroot.sh"; do
+    if grep -q 'Acquire::Retries' "$f"; then
+        ok "apt 有网络重试: ${f#$REPO_ROOT/}"
+    else
+        bad "apt 缺网络重试(归档源抖动会让整次 ISO 构建失败): ${f#$REPO_ROOT/}"
+    fi
+done
+
+# 写盘脚本必须检查 dd 的退出码与目标盘容量, 否则失败会谎报"安装成功"
+DDD="$ISO_DIR/supportFiles/custom/ddd"
+if grep -qE 'if ! dd|dd .*\|\|' "$DDD"; then
+    ok "ddd 检查 dd 的退出码(失败不会谎报安装成功)"
+else
+    bad "ddd 没有检查 dd 退出码, 写入失败也会打印安装成功"
+fi
+if grep -qE '\-lt "\$image_size"' "$DDD"; then
+    ok "ddd 写入前比较目标盘容量"
+else
+    bad "ddd 没有在写入前校验目标盘容量"
+fi
+
+# live 安装器只需本地控制台: 留着 sshd 等于同网段任何人都能 root 登录后 dd 磁盘
+if grep -q 'systemctl disable ssh' "$ISO_DIR/supportFiles/installChroot.sh"; then
+    ok "installer live 环境禁用了 sshd"
+else
+    bad "installer live 环境仍开着 sshd"
 fi
 
 # 发布说明里不能再有上游的加速站链接与徽章

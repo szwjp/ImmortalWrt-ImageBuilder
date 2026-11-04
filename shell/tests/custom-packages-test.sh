@@ -73,12 +73,14 @@ fi
 #    因此包名必须写对。写错的形式有两种典型:
 #      - 写成 luci-app-<名> / luci-mod-<名>: 这是应用本体, 装了没有中文界面
 #      - 写成 luci-i18n-<名>-zh-cn 但该应用其实没有中文翻译: 装不上, 构建失败
-#    这里只能静态查"形式对不对", 查不了"该版本有没有这个包"(那是构建期的事)。
+#    例外是"非 i18n 的 LuCI 变体包", 它们不是翻译包而是 Web 后端实现
+#    (luci-nginx: nginx+uwsgi 形态), 必须显式列进白名单, 否则直接判不合规。
+LUCI_VARIANT_ALLOW="luci-nginx"
 non_i18n=$(printf '%s\n' "$core_pkgs" \
   | grep -E '^luci-' \
-  | grep -vE '^luci(-i18n-[a-z0-9._-]+)?$' || true)
+  | grep -vE "^luci$|^luci-i18n-[a-z0-9._-]+$|^(${LUCI_VARIANT_ALLOW})$" || true)
 if [ -z "$non_i18n" ]; then
-  ok "LuCI 包的写法合规(luci 本体 / luci-i18n-<名>-zh-cn)"
+  ok "LuCI 包的写法合规(luci 本体 / luci-i18n-<名>-zh-cn / 白名单变体)"
 else
   bad "LuCI 包写法不合规: $(echo "$non_i18n" | tr '\n' ' ')"
 fi

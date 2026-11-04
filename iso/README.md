@@ -19,14 +19,15 @@ MIT 协议，作者 Daniel William Powers。原始许可证保留在 [`iso/LICEN
 | 文件 | 改动 |
 |------|------|
 | `autobuild.sh` | 重写。原版要 `cd` 进 clone 出来的目录、靠相对路径找 `supportFiles`；现在自包含，脚本所在目录即工作目录。Debian 基础镜像由 `debian:buster` 改为 `debian:buster@sha256:58ce6f12...` 按 digest 钉死，tag 指向的内容会随上游重新推送而变化。固件以只读方式挂进容器。 |
-| `supportFiles/custom/build.sh` | Debian 包源先走 HTTP 装 `ca-certificates`（`debian:buster` 基础镜像只有 91 个核心包，不含证书），装完立刻切 HTTPS，后续工具安装走加密通道。debootstrap 保持 HTTP——它的二阶段会在还没证书的 chroot 里跑 apt，走 HTTPS 会中断；而 buster 的 Release 带 GPG 签名，debootstrap 默认校验，完整性有保障。 |
+| `supportFiles/custom/build.sh` | Debian 包源先走 HTTP 装 `ca-certificates`（`debian:buster` 基础镜像只有 91 个核心包，不含证书），装完立刻切 HTTPS，后续工具安装走加密通道。debootstrap 保持 HTTP——它的二阶段会在还没证书的 chroot 里跑 apt，走 HTTPS 会中断；而 buster 的 Release 带 GPG 签名，debootstrap 默认校验，完整性有保障。另外补了 `set -euo pipefail` 与 apt 网络重试（`Acquire::Retries=3`）——归档源已 EOL，一次抖动就失败太不值。 |
 | `supportFiles/sources.list` | 由明文改为加密通道。chroot 在 debootstrap 阶段已通过 `--include=ca-certificates` 拿到证书，所以这里能用 HTTPS。 |
-| `supportFiles/custom/ddd` | 菜单文案由「Custom OpenWrt」改为「ImmortalWrt」，与本仓库实际构建的固件一致。 |
+| `supportFiles/custom/ddd` | 菜单文案由「Custom OpenWrt」改为「ImmortalWrt」，与本仓库实际构建的固件一致。另外补了三处安全/正确性：只列可写整盘（避免写掉安装介质）、写入前比较镜像与目标盘容量、检查 `dd` 退出码（失败不再谎报安装成功）。 |
 | `supportFiles/custom/grub.cfg` | 引导菜单项名称同上。 |
+| `supportFiles/custom/isolinux.cfg` | BIOS 引导菜单项名称同上（上游原样是「Custom OpenWrt Installer」，只有 EFI 菜单改过会导致两种引导方式文案不一致）。 |
+| `supportFiles/installChroot.sh` | 补 `set -euo pipefail`：该脚本跑在 `chroot` 里，容器入口的 `set -e` 管不到它，任何一步 apt 失败若被放过会静默产出缺包的 ISO。同时给 apt 加网络重试（归档源易抖动），并在 live 环境禁用 sshd（安装器只需本地控制台，避免同网段用 root 登录后误写磁盘）。 |
 | `info.md` | 重写发布说明。删掉上游的 cpolar 加速站链接与 shields.io 徽章；修正上游说明里「LAN 口 IP 为 192.168.100.1」的错误（本仓库固件实际是 `192.168.1.1`，且可在工作流里改）。 |
 
-其余文件（`installChroot.sh`、`override.conf`、`99-dhcp-en.network`、
-`grub-standalone.cfg`、`isolinux.cfg`）与上游一致。
+其余文件（`override.conf`、`99-dhcp-en.network`、`grub-standalone.cfg`）与上游一致。
 
 上游仓库里其余内容没有搬过来：`esirplayground` / `ezopwrt` / `haos` /
 `istoreos` / `immortalwrt` 等其它固件变体、上游自己的 GitHub Actions 工作流、

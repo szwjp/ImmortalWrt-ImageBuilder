@@ -78,6 +78,14 @@ case "$args" in
         ;;
     esac
     ;;
+  *"/releases/"*)
+    # 查单个 release 的状态(--ensure-published 用)
+    case "$GH_MODE" in
+      draft|always_fail) echo "true" ;;
+      *) echo "false" ;;
+    esac
+    exit 0
+    ;;
   *)
     echo "2026-11-04T08:00:00Z"
     exit 0
@@ -182,6 +190,66 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "用法"; then
   ok "缺参数时给出用法"
 else
   bad "缺参数未给用法: rc=$rc out=$out"
+fi
+
+# ================================================================
+# 8~11. --ensure-published 兜底模式
+# ================================================================
+# 背景: 日期刷新是 "先 draft=true 再 draft=false" 的往返。若中途失败/被取消,
+# release 会停在 draft, 对外直接消失。CI 在 always() 步骤里调用这个模式兜底。
+# 关键约束: 兜底只许"发布", 不许再做一次 draft 往返(否则又制造同样的风险窗口)。
+
+# 8. release 卡在 draft -> 只发一条 draft=false, 不做 draft=true, rc=0
+make_stub
+: > "$GH_LOG"
+out=$(GH_MODE=draft GH_TOKEN=dummy GITHUB_REPOSITORY=owner/repo \
+  sh "$REFRESH" --ensure-published Autobuild-x86-64 2>&1)
+rc=$?
+calls=$(cat "$GH_LOG")
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$calls" | grep -q "draft=false" \
+   && ! printf '%s' "$calls" | grep -q "draft=true"; then
+  ok "ensure 模式只发布 draft 的 release, 不再做 draft 往返"
+else
+  bad "ensure 模式行为不对: rc=$rc calls=[$calls]"
+fi
+
+# 9. release 已经是 published -> 一条 PATCH 都不该发
+make_stub
+: > "$GH_LOG"
+out=$(GH_MODE=published GH_TOKEN=dummy GITHUB_REPOSITORY=owner/repo \
+  sh "$REFRESH" --ensure-published Autobuild-x86-64 2>&1)
+rc=$?
+calls=$(cat "$GH_LOG")
+if [ "$rc" -eq 0 ] && ! printf '%s' "$calls" | grep -q "PATCH"; then
+  ok "ensure 模式对已发布的 release 不做任何改动"
+else
+  bad "ensure 模式对已发布 release 多做了操作: rc=$rc calls=[$calls]"
+fi
+
+# 10. 首次构建, release 还不存在 -> 静默跳过, rc=0
+make_stub
+: > "$GH_LOG"
+out=$(GH_MODE=notfound GH_TOKEN=dummy GITHUB_REPOSITORY=owner/repo \
+  sh "$REFRESH" --ensure-published Autobuild-x86-64 2>&1)
+rc=$?
+calls=$(cat "$GH_LOG")
+if [ "$rc" -eq 0 ] && ! printf '%s' "$calls" | grep -q "PATCH"; then
+  ok "ensure 模式在 release 不存在时静默跳过"
+else
+  bad "ensure 模式在 release 不存在时行为不对: rc=$rc calls=[$calls]"
+fi
+
+# 11. 兜底发布也持续失败 -> 必须报错(否则会让人误以为 release 已恢复)
+make_stub
+: > "$GH_LOG"
+out=$(GH_MODE=always_fail GH_TOKEN=dummy GITHUB_REPOSITORY=owner/repo \
+  sh "$REFRESH" --ensure-published Autobuild-x86-64 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "draft"; then
+  ok "ensure 模式发布失败时报错并指出 release 仍是 draft"
+else
+  bad "ensure 模式发布失败未报错: rc=$rc out=$out"
 fi
 
 echo

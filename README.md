@@ -22,18 +22,21 @@
 ImmortalWrt-ImageBuilder/
 ├── .github/workflows/          # GitHub Actions 工作流目录
 │   ├── build-x86-64.yml            # 统一构建工作流 (通过参数选择版本和输出格式)
-│   └── clean-workflow.yml          # 工作流清理
+│   ├── clean-workflow.yml          # 工作流清理
+│   └── test.yml                    # push/PR 触发: 语法检查 + 全部自测 (不联网)
 ├── x86-64/                      # x86-64 平台配置目录
 │   ├── build.sh                 # 统一构建脚本 (25.12.x, APK)
 │   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
 │   ├── custom-packages.sh       # 核心软件包配置 + 官方 LuCI 应用清单 (25.12.x, APK)
-│   ├── refresh-release-date.sh  # 刷新 release 的 published_at, 让列表页日期跟随构建
+│   ├── refresh-release-date.sh  # 刷新 release 的 published_at, 兼 draft 兜底发布
 │   └── tests/                   # 构建脚本自测 (全部不联网, CI 里跑)
-│       ├── run-all.sh                    # 统一入口, 依次跑下面全部测试
+│       ├── run-all.sh                    # 统一入口, 自动跑目录下全部 *-test.sh
 │       ├── custom-packages-test.sh       # 核心集/排除项/静态表 静态断言
 │       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
-│       └── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
+│       ├── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
+│       ├── iso-vendor-test.sh            # ISO 链路: vendored/文案/写盘护栏
+│       └── workflow-ci-test.sh           # 构建稳定性: 并发/超时/digest/凭据/产物
 ├── files/etc/uci-defaults/      # 固件自定义文件目录
 │   └── 99-custom.sh             # 固件首次启动配置脚本
 └── iso/                         # ISO 安装器构建 (vendored, 不再 clone 第三方仓库)
@@ -77,6 +80,14 @@ ImmortalWrt-ImageBuilder/
 
 ### 特别说明
 
-- 本项目构建的固件，WAN 口防火墙规则入站默认是开启的，待首次调试完毕后，建议自行关闭。操作方法：网络 - 防火墙 - WAN 的入站选择拒绝，然后保存并应用即可。
+- **单网口设备**（DHCP 模式）会放开 WAN zone 的入站，方便首次直接访问 WebUI；调试完建议在【网络 - 防火墙】把 WAN 入站改回拒绝。**多网口设备不会放开**：它用 LAN 静态地址访问，WAN 保持默认拒绝。
 - 固件默认 root 无密码，且 SSH、ttyd（网页终端）默认监听所有网口（含 WAN）。公网或不可信网络环境下请务必：设置 root 密码、在【系统 - 登录/SSH】中限制监听接口，或关闭 ttyd。
-- **启用 PPPoE 时，宽带密码会以明文写入固件镜像**（首启脚本读完即删设备上的副本，但镜像本身仍含明文）。这类固件请勿公开分发。
+- **启用 PPPoE 时，宽带密码会以明文写入固件镜像**（首启脚本读完即删设备上的副本，但镜像本身仍含明文）。这类固件请勿公开分发。CI 日志里不再回显凭据，但这只解决日志，不解决镜像。
+- 发布资产除固件外还带 `<固件>.sha256`（下载后 `sha256sum -c` 校验）与 `.manifest`（固件内软件包清单）。
+
+### 构建稳定性约定
+
+- 两个 release 的 tag 固定（`Autobuild-x86-64`、`Custom-Installer-x86_64-ISO`），工作流用 `concurrency` 串行化，避免并发 dispatch 互相覆盖同名资产。
+- ImageBuilder 镜像按 digest 钉死（见工作流里的版本 → digest 映射，新增版本要补一行）；ISO 链路的 `debian:buster` 同样按 digest 钉死。
+- release 日期刷新是 draft→published 往返，失败路径由 `--ensure-published` 兜底，避免 release 卡在 draft 对外消失。
+- push / pull_request 会跑 `test.yml`（语法检查 + 全部自测，不联网），规则被改坏会在提交时就红，而不是等到下次手动出图。

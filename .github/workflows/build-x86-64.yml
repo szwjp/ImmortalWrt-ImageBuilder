@@ -25,7 +25,7 @@ on:
         required: true
         default: "192.168.1.1"
       profile:
-        description: '固件大小 单位(MB)'
+        description: '固件大小 单位(MB), 至少 256'
         required: true
         default: '1024'
       include_docker:
@@ -54,16 +54,21 @@ on:
 permissions:
   contents: write
 
+# release 的 tag 是固定的两个(Autobuild-x86-64 / Custom-Installer-x86_64-ISO),
+# 并发 dispatch 会互相覆盖同名资产, 还会让 draft->published 的日期刷新交错,
+# 最终 release 是发布还是 draft 取决于时序。这里串行化整条构建链。
+concurrency:
+  group: build-x86-64
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set executable permissions
-        run: chmod +x ${{ github.workspace }}/x86-64/build.sh
+        uses: actions/checkout@v5
 
       - name: Validate inputs
         run: |
@@ -96,6 +101,12 @@ jobs:
             echo "::error::固件大小必须是正整数(MB), 当前: $profile"
             exit 1
           fi
+          # 下限: 32MB 内核分区 + 核心包集, 低于 256MB 时 rootfs 放不下,
+          # 会在 gen_image_generic.sh 阶段失败(报错点深且不直观)。
+          if [ "$profile" -lt 256 ]; then
+            echo "::error::固件大小至少 256MB, 当前: $profile"
+            exit 1
+          fi
 
       - name: Run shell tests
         run: |
@@ -108,39 +119,54 @@ jobs:
           mkdir -p "${{ github.workspace }}/custom"
           echo "${{ inputs.custom_router_ip }}" > "${{ github.workspace }}/custom/custom_router_ip.txt"
 
-      - name: Build ImmortalWrt firmware
+      # 镜像按 digest 钉死: tag 会被上游重新推送, digest 不会。ISO 链路里
+      # debian:buster 已经是这么钉的, 这里保持一致; 否则同一份 workflow 在不同
+      # 时间跑出来的固件可能来自不同的 ImageBuilder 内容。
+      - name: Resolve ImageBuilder image digest
+        id: ib
         run: |
-          luci_version="${{ inputs.luci_version }}"
-          profile="${{ inputs.profile }}"
-          include_docker="${{ inputs.include_docker }}"
+          case "${{ inputs.luci_version }}" in
+            25.12.0) digest="sha256:5ef244d7d795f53ddc7a11cdefaf0c264336d7f3dedc23305c97cd65dd579f6c" ;;
+            25.12.1) digest="sha256:600dbc0bb7c0b0ca6d6b3b783061599bb93e19e220e416ab21911c6d15dc7049" ;;
+            25.12.2) digest="sha256:7ea93e502bfe8b09f3a0d8f8b7d3d244ecc0fbcd5207cf264abf79f5ef9b925e" ;;
+            *)
+              echo "::error::没有为 ${{ inputs.luci_version }} 钉 ImageBuilder digest, 请先补 digest 映射"
+              exit 1
+              ;;
+          esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
-          # 官方 docker 镜像有点版本标签 x86-64-openwrt-<version>。
-          # 镜像版本必须跟 luci_version 一致: ImageBuilder tarball 里的
-          # repositories 文件写死了点版本(apk 实际从那儿取包), 而 luci_version
-          # 还决定了解析用的 index.json 和固件运行时的源, 三者要同版本。
-          image_tag="x86-64-openwrt-${luci_version}"
-
-          config_file="imm.config"
-
+      - name: Build ImmortalWrt firmware
+        env:
+          # 凭据一律走 env: Actions 会把 run: 脚本全文回显到日志, 内联
+          # ${{ inputs.* }} 等于把宽带密码明文打进运行日志; 未加引号时含空格/
+          # 引号的值还会被 shell 拆错参数。这里由 shell 变量引用, 不出现在脚本里。
+          LUCI_VERSION: ${{ inputs.luci_version }}
+          PROFILE: ${{ inputs.profile }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
+          ENABLE_PPPOE: ${{ inputs.enable_pppoe }}
+          PPPOE_ACCOUNT: ${{ inputs.pppoe_account }}
+          PPPOE_PASSWORD: ${{ inputs.pppoe_password }}
+        run: |
           # 只构建一档。ImageBuilder 的产物文件名由版本/架构/镜像类型决定,
           # 不含 rootfs 大小(ROOTFS_PARTSIZE 只影响分区大小), 多档会写进同一个
           # 路径互相覆盖, 最终只剩最后一档且与用户预期不符 —— 所以这里只保留单档。
-          echo "Building for profile: $profile (luci_version=$luci_version, image=$image_tag)"
+          echo "Building for profile: $PROFILE (luci_version=$LUCI_VERSION, image=immortalwrt/imagebuilder@${{ steps.ib.outputs.digest }})"
           docker run --rm -i \
             --user root \
             -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
             -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
             -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
-            -v "${{ github.workspace }}/x86-64/${config_file}:/home/build/immortalwrt/.config" \
+            -v "${{ github.workspace }}/x86-64/imm.config:/home/build/immortalwrt/.config" \
             -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
             -v "${{ github.workspace }}/x86-64/build.sh:/home/build/immortalwrt/build.sh" \
-            -e LUCI_VERSION=$luci_version \
-            -e PROFILE=$profile \
-            -e INCLUDE_DOCKER=$include_docker \
-            -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
-            -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
-            -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
-            immortalwrt/imagebuilder:$image_tag /bin/bash /home/build/immortalwrt/build.sh
+            -e LUCI_VERSION="$LUCI_VERSION" \
+            -e PROFILE="$PROFILE" \
+            -e INCLUDE_DOCKER="$INCLUDE_DOCKER" \
+            -e ENABLE_PPPOE="$ENABLE_PPPOE" \
+            -e PPPOE_ACCOUNT="$PPPOE_ACCOUNT" \
+            -e PPPOE_PASSWORD="$PPPOE_PASSWORD" \
+            "immortalwrt/imagebuilder@${{ steps.ib.outputs.digest }}" /bin/bash /home/build/immortalwrt/build.sh
 
       - name: Create info
         run: |
@@ -159,14 +185,40 @@ jobs:
             echo -e "\n#### 不带docker" >> ${{ github.workspace }}/router-info.md
           fi
 
+          cat >> ${{ github.workspace }}/router-info.md <<'EOF'
+
+          #### 附件校验
+
+          - `<固件>.sha256`: 下载后执行 `sha256sum -c <固件>.sha256` 校验完整性
+          - `<固件>.manifest`: 固件内软件包清单, 可直接核对装了哪些包
+          EOF
+
+      # 发布资产统一先落到 dist/: 固件 + sha256 + ImageBuilder 的 .manifest。
+      # 直接从 bin/ 上传没法附带校验和与清单, 也不好区分资产类型。
+      - name: Stage release assets (img)
+        if: inputs.output_format == 'img'
+        run: |
+          set -euo pipefail
+          dist="${{ github.workspace }}/dist"
+          rm -rf "$dist"
+          mkdir -p "$dist"
+          img=$(ls "${{ github.workspace }}"/bin/targets/x86/64/*squashfs-combined-efi.img.gz)
+          cp "$img" "$dist/"
+          ( cd "$dist" && sha256sum "$(basename "$img")" > "$(basename "$img").sha256" )
+          for m in "${{ github.workspace }}"/bin/targets/x86/64/*.manifest; do
+            [ -f "$m" ] || continue
+            cp "$m" "$dist/"
+          done
+          ls -l "$dist"
+
       - name: Upload firmware as release (img)
         if: inputs.output_format == 'img'
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: Autobuild-x86-64
           body_path: ${{ github.workspace }}/router-info.md
           files: |
-            ${{ github.workspace }}/bin/targets/x86/64/*squashfs-combined-efi.img.gz
+            ${{ github.workspace }}/dist/*
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # release 列表页显示的日期是 published_at, 它只在 release 从 draft 变成
@@ -179,6 +231,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: sh shell/refresh-release-date.sh Autobuild-x86-64
+
+      # 兜底: 日期刷新是 "先转 draft 再转回 published", 中途失败/超时会把
+      # release 卡在 draft(对外直接消失)。任何退出路径都再确认一次它是 published。
+      - name: Ensure img release is published
+        if: always() && inputs.output_format == 'img'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: sh shell/refresh-release-date.sh --ensure-published Autobuild-x86-64
 
       - name: Copy firmware for ISO
         if: inputs.output_format == 'iso'
@@ -193,6 +254,7 @@ jobs:
 
   build_iso:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     needs: build
     if: inputs.output_format == 'iso'
 
@@ -200,25 +262,55 @@ jobs:
       # ISO 构建脚本已 vendored 进本仓库的 iso/ 目录, 不再 clone 第三方仓库。
       # 需要 checkout 才能拿到 iso/ 下的脚本。
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download firmware artifact
         uses: actions/download-artifact@v4
         with:
           name: firmware-img
 
+      # 先把基础镜像拉下来, 失败重试三次。autobuild.sh 里 docker run 会隐式
+      # pull, 一次网络抖动就让整步失败(而且从报错看不出是网络问题)。
+      # 镜像引用从脚本里取, 不在这里重复写 digest, 免得两处漂移。
+      - name: Pre-pull ISO builder image
+        run: |
+          set -euo pipefail
+          image=$(grep -oE 'debian:buster@sha256:[0-9a-f]{64}' iso/autobuild.sh | head -1)
+          [ -n "$image" ] || { echo "::error::iso/autobuild.sh 里找不到钉死的镜像引用"; exit 1; }
+          attempt=1
+          while [ "$attempt" -le 3 ]; do
+            if docker pull "$image"; then
+              exit 0
+            fi
+            echo "拉取 $image 失败(第 $attempt 次), 重试"
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+          echo "::error::拉取 $image 连续失败 3 次"
+          exit 1
+
       - name: Build ISO
         run: |
           firmware_file=$(ls *squashfs-combined-efi.img.gz)
           bash iso/autobuild.sh "$firmware_file"
 
+      - name: Stage release assets (ISO)
+        run: |
+          set -euo pipefail
+          dist="${{ github.workspace }}/dist"
+          rm -rf "$dist"
+          mkdir -p "$dist"
+          cp iso/output/custom-installer-x86_64.iso "$dist/"
+          ( cd "$dist" && sha256sum custom-installer-x86_64.iso > custom-installer-x86_64.iso.sha256 )
+          ls -l "$dist"
+
       - name: Upload ISO to Release
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: "Custom-Installer-x86_64-ISO"
           body_path: "${{ github.workspace }}/iso/info.md"
           files: |
-            iso/output/custom-installer-x86_64.iso
+            ${{ github.workspace }}/dist/*
           token: "${{ secrets.GITHUB_TOKEN }}"
 
       # 与 img release 同理: 刷新 published_at, 让列表页日期跟随本次构建
@@ -227,3 +319,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: sh shell/refresh-release-date.sh Custom-Installer-x86_64-ISO
+
+      - name: Ensure ISO release is published
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: sh shell/refresh-release-date.sh --ensure-published Custom-Installer-x86_64-ISO

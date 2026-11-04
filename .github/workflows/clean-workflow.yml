@@ -8,9 +8,15 @@ on:
         required: false
         default: "1"
 
+# 清理是"查一遍 -> 逐个删"的循环, 两个实例并发跑没有意义且会互相撞 API。
+concurrency:
+  group: cleanup-workflow-runs
+  cancel-in-progress: false
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       actions: write
 
@@ -21,6 +27,11 @@ jobs:
           KEEP_DAYS: ${{ github.event.inputs.keep_days }}
         run: |
           : "${KEEP_DAYS:=1}"
+          # keep_days 直接进 date -d, 非数字会让 date 报一句难懂的错, 先自己挡掉
+          if ! printf '%s' "$KEEP_DAYS" | grep -Eq '^[0-9]+$'; then
+            echo "::error::keep_days 必须是非负整数(天), 当前: $KEEP_DAYS"
+            exit 1
+          fi
           THRESHOLD="$(date -u -d "${KEEP_DAYS} days ago" '+%Y-%m-%dT%H:%M:%SZ')"
           echo "阈值时间(UTC)：$THRESHOLD"
 

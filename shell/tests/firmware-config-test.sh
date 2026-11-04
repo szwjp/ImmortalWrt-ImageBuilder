@@ -240,6 +240,47 @@ else
 fi
 
 # ================================================================
+# 6b. 首启脚本的文件卫生与作用域
+# ================================================================
+# 日志不能写 /etc/config: 那里只应放 UCI 配置。混进 .txt 会让无参 uci show
+# 解析整个目录时报 Parse error, 也容易被当成配置一起备份/恢复。
+if grep -q 'LOGFILE="/etc/config/' "$CUSTOM"; then
+  bad "99-custom.sh 又把日志写进 /etc/config 了, 会污染 UCI 配置目录"
+else
+  ok "99-custom.sh 不往 /etc/config 写日志"
+fi
+
+# 构建期塞进 /etc/config 的 custom_router_ip.txt 读完必须删掉
+if grep -q 'rm -f "\$IP_VALUE_FILE"' "$CUSTOM"; then
+  ok "custom_router_ip.txt 读完即删"
+else
+  bad "custom_router_ip.txt 用完不删, 会长期留在设备 /etc/config"
+fi
+
+# WAN 入站放行只能发生在单网口分支:
+# 多网口设备用 LAN 静态地址访问, 把 WAN 开成 ACCEPT 只是白白扩大暴露面。
+if awk '/count" -eq 1/{g=NR} /^[[:space:]]*open_wan_input[[:space:]]*$/{c=NR} END{exit !(g && c && c>g && c-g<=6)}' "$CUSTOM"; then
+  ok "WAN 入站放行只出现在单网口分支"
+else
+  bad "WAN 入站放行没有限定在单网口分支(多网口也会把 WAN 开成 ACCEPT)"
+fi
+
+# zone 查找必须兼容具名段(config zone 'wan'), 不能只匹配 @zone[N] 形态
+if grep -q 'find_wan_zone' "$CUSTOM" && ! grep -q 'wan_zone=$(uci show firewall' "$CUSTOM"; then
+  ok "wan zone 查找兼容匿名段与具名段"
+else
+  bad "wan zone 查找仍只认匿名段(@zone[N]), 具名 zone 配置下会找不到"
+fi
+
+# 删 docker forwarding 必须按 section 标识, 不能按数组下标:
+# 具名段(config forwarding 'xxx')取不到下标, 老写法会漏删。
+if grep -q 'cut -d\[ -f2' "$CUSTOM"; then
+  bad "docker forwarding 仍按数组下标删除, 具名 forwarding 段会漏删"
+else
+  ok "docker forwarding 按 section 标识删除(具名段不会漏删)"
+fi
+
+# ================================================================
 # 7. 若环境里有 uci, 跑真实的凭据往返测试
 # ================================================================
 # CI 的 ubuntu runner 没有 uci, 这一段会自动跳过; 本机或 OpenWrt 环境下

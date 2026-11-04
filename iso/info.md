@@ -5,6 +5,10 @@
 - 物理机使用：建议将iso放入ventoy的U盘中
 #### 运行ISO的中的debian live系统 大概10几秒后 输入命令 `ddd` 即可调用安装菜单 选择需要安装的硬盘迅速完成安装
 
+#### 校验
+下载后可用同目录的 `custom-installer-x86_64.iso.sha256` 校验完整性：
+`sha256sum -c custom-installer-x86_64.iso.sha256`
+
 #### 安装后 默认情况 若没有更改 则固件信息如下
 - 用户名root 密码 无
 - 【单网口设备】默认采用DHCP模式,自动获得ip。类似NAS的做法 可在上一级路由器查询，若是虚拟机则输入 `ip a` 查看

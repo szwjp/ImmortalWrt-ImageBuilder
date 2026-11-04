@@ -2,7 +2,7 @@
 # 基于 willhaley 的 "custom debian live environment" 方案改编
 # (上游 img-installer, 见 iso/README.md 的出处说明)
 
-set -e
+set -euo pipefail
 
 echo "🔧 修复 buster 的源..."
 
@@ -16,6 +16,13 @@ deb http://archive.debian.org/debian-security buster/updates main
 EOF
 
 echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
+
+# 归档源(EOL)偶尔超时/断流: 失败自动重试, 别让一次网络抖动毁掉整次 ISO 构建。
+cat > /etc/apt/apt.conf.d/99-network-retries <<EOF
+Acquire::Retries "3";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+EOF
 
 apt-get update
 

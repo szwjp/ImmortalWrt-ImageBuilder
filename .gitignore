@@ -3,3 +3,14 @@
 # ISO 构建的中间产物与输出
 iso/imm/
 iso/output/
+
+# 本地构建产物（跑 x86-64/build.sh 或 iso/autobuild.sh 之后会出现）。
+# 注意 custom/ 里会有 build.sh 生成的 pppoe-settings（含明文密码），千万别提交。
+bin/
+custom/
+dist/
+router-info.md
+/*.img.gz
+
+# 审查报告只保存在本地
+docs/

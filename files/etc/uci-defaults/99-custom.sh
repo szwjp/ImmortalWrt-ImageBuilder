@@ -1,21 +1,46 @@
 #!/bin/sh
 # 99-custom.sh 就是immortalwrt固件首次启动时运行的脚本 位于固件内的/etc/uci-defaults/99-custom.sh
 # Log file for debugging
-LOGFILE="/etc/config/uci-defaults-log.txt"
-echo "Starting 99-custom.sh at $(date)" >>$LOGFILE
-# 设置默认防火墙规则，方便单网口虚拟机首次访问 WebUI
-# 因为本项目中 单网口模式是dhcp模式 直接就能上网并且访问web界面 避免新手每次都要修改/etc/config/network中的静态ip
-# 当你刷机运行后 都调整好了 你完全可以在web页面自行关闭 wan口防火墙的入站数据
-# 具体操作方法：网络——防火墙 在wan的入站数据 下拉选项里选择 拒绝 保存并应用即可。
-wan_zone=$(uci show firewall | awk -F '[=.]' '/\.@?zone\[[0-9]+\]\.name=.wan.$/ {print $2; exit}')
-if [ -n "$wan_zone" ]; then
-    uci set "firewall.$wan_zone.input=ACCEPT"
-else
-    echo "error: cannot find wan zone in firewall config" >>$LOGFILE
-fi
+# 日志不要写进 /etc/config: 那里只应放 UCI 配置文件。往里塞 .txt 会让无参
+# "uci show" 解析整个目录时报 Parse error, 也容易被当配置备份/恢复。
+LOGFILE="/tmp/99-custom.log"
+echo "Starting 99-custom.sh at $(date)" >>"$LOGFILE"
+
+# 找到 firewall 里 name 为 wan 的 zone section。
+# 兼容两种写法: 匿名段(config zone + option name 'wan', 输出 @zone[N])
+# 与具名段(config zone 'wan', 输出 wan)。老实现只认匿名段。
+find_wan_zone() {
+    local line sek name
+    for line in $(uci show firewall 2>/dev/null | grep -E '^firewall\.[^.=]+=zone$'); do
+        sek=${line%%=*}
+        sek=${sek#firewall.}
+        name=$(uci -q get "firewall.$sek.name")
+        [ -n "$name" ] || name="$sek"
+        if [ "$name" = "wan" ]; then
+            printf '%s' "$sek"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# 放开 wan zone 的入站。仅在单网口设备调用:
+# 单网口没有独立的 LAN 口, 首访 WebUI 只能走这唯一网口, 需要放行;
+# 多网口设备用 LAN 静态地址访问, 不该在 WAN 上开洞(保持默认 REJECT)。
+open_wan_input() {
+    local wan_zone
+    if wan_zone=$(find_wan_zone); then
+        uci set "firewall.$wan_zone.input=ACCEPT"
+        echo "wan zone '$wan_zone' input -> ACCEPT (单网口首访用)" >>"$LOGFILE"
+    else
+        echo "error: cannot find wan zone in firewall config" >>"$LOGFILE"
+    fi
+}
 
 # 检查配置文件pppoe-settings是否存在 该文件由build.sh动态生成
 SETTINGS_FILE="/etc/config/pppoe-settings"
+# 构建期由 workflow 塞进 /etc/config 的管理地址(仅多网口用), 读完要删
+IP_VALUE_FILE="/etc/config/custom_router_ip.txt"
 if [ ! -f "$SETTINGS_FILE" ]; then
     echo "PPPoE settings file not found. Skipping." >>$LOGFILE
 else
@@ -45,10 +70,10 @@ echo "Detected physical interfaces: $ifnames" >>$LOGFILE
 echo "Interface count: $count" >>$LOGFILE
 
 # 2. 映射WAN和LAN接口
-#    本仓库只构建 x86-64 generic 固件, 固件内没有 /etc/board.json,
-#    board_name 恒为 unknown, 原来的板型特例分支永远不会命中。
-#    按"不为单一设备形态定制"的原则, 这里不做板型特判, 统一按
-#    "最后一个网口为WAN, 其余为LAN" 处理。
+#    /etc/board.json 不在镜像里, 而是首次启动时由 /etc/board.d/* 生成,
+#    所以 board_name 是真实板型(例如 x86 上的具体设备型号), 不是 unknown。
+#    这里只把它写进日志便于排查, 不按板型做特判 —— 统一按
+#    "最后一个网口为WAN, 其余为LAN" 处理, 避免为单一设备形态定制。
 board_name=$(cat /tmp/sysinfo/board_name 2>/dev/null || echo "unknown")
 echo "Board detected: $board_name" >>$LOGFILE
 
@@ -62,6 +87,8 @@ echo "Using last interface as WAN mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"
 
 # 3. 配置网络
 if [ "$count" -eq 1 ]; then
+    # 单网口: 唯一网口既是 LAN 也是 WAN, 首访 WebUI 需要放开入站
+    open_wan_input
     # 单网口设备，DHCP模式
     uci set network.lan.proto='dhcp'
     uci delete network.lan.ipaddr
@@ -103,7 +130,6 @@ elif [ "$count" -gt 1 ]; then
         # 多网口设备 支持修改为别的管理后台地址 在Github Action 的UI上自行输入即可
         uci set network.lan.netmask='255.255.255.0'
         # 设置路由器管理后台地址
-        IP_VALUE_FILE="/etc/config/custom_router_ip.txt"
         if [ -f "$IP_VALUE_FILE" ]; then
             CUSTOM_IP=$(cat "$IP_VALUE_FILE")
             # 逐段校验 0-255。只用 ^([0-9]{1,3}\.){3}[0-9]{1,3}$ 是不够的:
@@ -142,6 +168,11 @@ elif [ "$count" -gt 1 ]; then
         echo "error: uci commit network failed" >>$LOGFILE
     }
 fi
+
+# custom_router_ip.txt 只是构建期塞进 /etc/config 的一次性输入, 无论走哪个
+# 分支都在这里清掉: 留在设备上既是垃圾文件, 也会让无参 "uci show" 扫目录时
+# 多一个非 UCI 文件。注意必须在上面读取之后。
+rm -f "$IP_VALUE_FILE"
 
 # 设置所有网口可访问网页终端
 uci -q delete ttyd.@ttyd[0].interface
@@ -217,14 +248,16 @@ if command -v dockerd >/dev/null 2>&1; then
     # 删除所有名为 docker 的 zone
     uci -q delete firewall.docker
 
-    # 先获取所有 forwarding 索引，倒序排列删除
-    for idx in $(uci show firewall | grep "=forwarding" | cut -d[ -f2 | cut -d] -f1 | sort -rn); do
-        src=$(uci get firewall.@forwarding[$idx].src 2>/dev/null)
-        dest=$(uci get firewall.@forwarding[$idx].dest 2>/dev/null)
-        echo "Checking forwarding index $idx: src=$src dest=$dest"
+    # 删除所有引用 docker zone 的 forwarding。
+    # 用 section 标识(@forwarding[N] 或具名段)而不是数组下标: 具名段
+    # (config forwarding 'xxx') 取不到数字下标, 老写法会漏删。
+    for sek in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=forwarding$/\1/p'); do
+        src=$(uci -q get "firewall.$sek.src")
+        dest=$(uci -q get "firewall.$sek.dest")
+        echo "Checking forwarding $sek: src=$src dest=$dest"
         if [ "$src" = "docker" ] || [ "$dest" = "docker" ]; then
-            echo "Deleting forwarding @forwarding[$idx]"
-            uci delete firewall.@forwarding[$idx]
+            echo "Deleting forwarding $sek"
+            uci -q delete "firewall.$sek"
         fi
     done
 
