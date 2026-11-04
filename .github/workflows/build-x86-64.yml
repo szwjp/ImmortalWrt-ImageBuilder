@@ -89,10 +89,9 @@ jobs:
 
       - name: Run shell tests
         run: |
-          # LuCI 应用解析规则的自测(桩索引, 不联网), 规则回归即构建失败
-          sh shell/tests/luci-apps-test.sh
-          # release 发布日期刷新脚本的自测(桩 gh, 不联网)
-          sh shell/tests/refresh-release-date-test.sh
+          # 构建脚本自测(全部不联网): 解析规则/包集合静态断言/release 日期刷新
+          # 任何一条失败即构建失败, 不让规则回归拖到出图后才发现
+          sh shell/tests/run-all.sh
 
       - name: Save Custom Router IP
         run: |
