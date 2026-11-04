@@ -213,11 +213,13 @@ else
   bad "docker forwarding 数量不对(应为 3 条 uci add)"
 fi
 
-# dhcp domain 必须幂等(先查已有再决定新增还是更新)
-if grep -q 'existing_domain=' "$CUSTOM"; then
-  ok "dhcp domain 先查已有再写入(幂等)"
+# 首启脚本不该有硬编码的外部域名/IP 解析映射。
+# 这类映射(如 time.android.com -> 某个 IP)是写死的外部依赖: 目标 IP 变了
+# 就失效, 且固件带着别人的域名走。已从脚本移除, 这里加断言防它被加回来。
+if grep -qE '(DOMAIN_NAME|DOMAIN_IP|uci add dhcp domain)' "$CUSTOM"; then
+  bad "99-custom.sh 又有硬编码的域名/IP 解析映射, 属于不该存在的外部依赖"
 else
-  bad "dhcp domain 无条件新增, 重复执行会累积"
+  ok "99-custom.sh 无硬编码域名/IP 解析映射"
 fi
 
 # x86-64 仓库不该有板型硬编码特例(固件内无 board.json, 永不命中)

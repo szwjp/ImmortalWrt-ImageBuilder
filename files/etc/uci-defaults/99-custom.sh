@@ -14,20 +14,6 @@ else
     echo "error: cannot find wan zone in firewall config" >>$LOGFILE
 fi
 
-# 设置主机名映射，解决安卓原生 TV 无法联网的问题
-# 先查已有映射, 已存在就更新它, 不存在才新增 —— 这样重复执行不会累积出
-# 多条一模一样的 domain 记录。
-DOMAIN_NAME="time.android.com"
-DOMAIN_IP="203.107.6.88"
-existing_domain=$(uci show dhcp | grep -F ".name='$DOMAIN_NAME'" | cut -d. -f2 | head -1)
-if [ -n "$existing_domain" ]; then
-    uci set "dhcp.$existing_domain.ip=$DOMAIN_IP"
-else
-    uci add dhcp domain
-    uci set "dhcp.@domain[-1].name=$DOMAIN_NAME"
-    uci set "dhcp.@domain[-1].ip=$DOMAIN_IP"
-fi
-
 # 检查配置文件pppoe-settings是否存在 该文件由build.sh动态生成
 SETTINGS_FILE="/etc/config/pppoe-settings"
 if [ ! -f "$SETTINGS_FILE" ]; then
@@ -168,7 +154,6 @@ uci set dropbear.@dropbear[0].Interface=''
 # 改动一起写盘。uci commit 一次只能提交一个包(多包会报 usage 错), 所以逐个提交。
 # network 包在上面的分支里已单独提交, 这里不重复。
 # 逐个包用 -q: 某个包不存在时(如未装 ttyd)只跳过它, 不刷错误也不中断脚本。
-uci -q commit dhcp
 uci -q commit firewall
 uci -q commit dropbear
 uci -q commit ttyd
