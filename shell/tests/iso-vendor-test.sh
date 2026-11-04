@@ -235,6 +235,34 @@ else
     tail -3 "$TMP/out.log"
 fi
 
+# ================================================================
+# 9. 被当作容器入口执行的脚本必须有可执行位
+# ================================================================
+# 踩过的坑: supportFiles/custom/build.sh 是被 docker 当作容器进程直接
+# exec 的, 没有 +x 会报 "exec: /supportFiles/custom/build.sh: permission
+# denied"。上游是靠 workflow 里的 chmod +x 解决的, 我们删掉那步时没补上。
+# 这里检查 git 记录的模式(100755), 而不是工作区的权限 —— 后者在 Windows
+# 检出后可能不一致, 而 git 模式才是权威来源。
+for f in \
+    iso/supportFiles/custom/build.sh \
+    iso/supportFiles/custom/ddd \
+    iso/supportFiles/installChroot.sh
+do
+    mode=$(git -C "$REPO_ROOT" ls-files -s "$f" 2>/dev/null | awk '{print $1}')
+    if [ "$mode" = "100755" ]; then
+        ok "git 记录为可执行: $f"
+    else
+        bad "git 模式不是 100755(实际是 ${mode:-未跟踪}): $f"
+    fi
+done
+
+# autobuild.sh 里还要有运行时兜底: 从 Windows 检出时权限位可能丢失
+if grep -q 'chmod +x.*supportFiles/custom/build.sh' "$ISO_DIR/autobuild.sh"; then
+    ok "autobuild.sh 有运行时 chmod 兜底"
+else
+    bad "autobuild.sh 缺少运行时 chmod 兜底"
+fi
+
 echo
 echo "iso-vendor-test: 通过 $pass, 失败 $fail"
 [ "$fail" -eq 0 ] || exit 1

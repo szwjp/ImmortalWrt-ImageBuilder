@@ -66,6 +66,13 @@ fi
 echo "固件大小: $(ls -lh imm/custom.img | awk '{print $5}')"
 
 echo "==> 合成安装器 ISO"
+# 入口脚本必须可执行: 它是被 docker 当作容器进程直接 exec 的, 没有 +x 会报
+# "permission denied"。git 里已记录 755, 但从 Windows 检出或某些 CI 环境下
+# 权限位会丢, 这里再兜一层底。
+chmod +x "$ISO_DIR/supportFiles/custom/build.sh" \
+         "$ISO_DIR/supportFiles/custom/ddd" \
+         "$ISO_DIR/supportFiles/installChroot.sh"
+
 # --privileged 是必需的: build.sh 要在容器里 mount /proc /dev /sys 并 chroot。
 # 固件以只读挂载进去, 容器里只读不改它。
 docker run --privileged --rm \
