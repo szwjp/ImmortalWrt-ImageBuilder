@@ -257,19 +257,15 @@ else
   bad "custom_router_ip.txt 用完不删, 会长期留在设备 /etc/config"
 fi
 
-# WAN 入站放行只能发生在单网口分支:
-# 多网口设备用 LAN 静态地址访问, 把 WAN 开成 ACCEPT 只是白白扩大暴露面。
-if awk '/count" -eq 1/{g=NR} /^[[:space:]]*open_wan_input[[:space:]]*$/{c=NR} END{exit !(g && c && c>g && c-g<=6)}' "$CUSTOM"; then
-  ok "WAN 入站放行只出现在单网口分支"
+# 首启脚本不该改 firewall 的 zone 入站策略。
+# 单网口设备的唯一网口在默认配置里属于 lan zone(默认 input ACCEPT), 首访 WebUI
+# 本来就能通; 给 wan zone 开 ACCEPT 既没用, 又会在以后有人加 wan 接口时白送放行。
+if grep -qE 'open_wan_input|find_wan_zone|wan_zone' "$CUSTOM"; then
+  bad "99-custom.sh 又出现 open_wan_input/find_wan_zone 之类的 WAN 放行逻辑"
+elif awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f && /firewall/' "$CUSTOM" | grep -q .; then
+  bad "单网口分支又在改 firewall 配置"
 else
-  bad "WAN 入站放行没有限定在单网口分支(多网口也会把 WAN 开成 ACCEPT)"
-fi
-
-# zone 查找必须兼容具名段(config zone 'wan'), 不能只匹配 @zone[N] 形态
-if grep -q 'find_wan_zone' "$CUSTOM" && ! grep -q 'wan_zone=$(uci show firewall' "$CUSTOM"; then
-  ok "wan zone 查找兼容匿名段与具名段"
-else
-  bad "wan zone 查找仍只认匿名段(@zone[N]), 具名 zone 配置下会找不到"
+  ok "单网口分支不修改 firewall zone 入站策略"
 fi
 
 # 删 docker forwarding 必须按 section 标识, 不能按数组下标:

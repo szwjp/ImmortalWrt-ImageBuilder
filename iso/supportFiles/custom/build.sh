@@ -38,7 +38,14 @@ EOF
 
 echo Install required tools
 apt-get update
-apt-get -y install debootstrap squashfs-tools xorriso isolinux syslinux-efi  grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted
+# 只装真正用到的: debootstrap(装 chroot)、squashfs-tools(mksquashfs)、
+# xorriso(合成 ISO)、isolinux(BIOS 引导 + isohdpfx.bin)、
+# syslinux-common(isolinux.cfg 用到的 vesamenu 等 BIOS 模块, 它是 isolinux 的
+# Recommends, 这里显式列出以免 apt 配置关掉 recommends 时缺文件)、
+# grub-efi-amd64-bin(EFI 模块, grub-mkstandalone 由依赖的 grub-common 提供)、
+# mtools(mmd/mcopy 写 FAT ESP)、dosfstools(mkfs.vfat)。
+apt-get -y install debootstrap squashfs-tools xorriso isolinux syslinux-common \
+    grub-efi-amd64-bin mtools dosfstools
 
 echo Create directory where we will make the image
 mkdir -p $HOME/LIVE_BOOT
@@ -69,7 +76,6 @@ chroot $HOME/LIVE_BOOT/chroot /installChroot.sh
 
 echo Cleanup chroot
 rm -v $HOME/LIVE_BOOT/chroot/installChroot.sh
-mv -v $HOME/LIVE_BOOT/chroot/packages.txt /output/packages.txt
 
 echo Copy in systemd-networkd config
 cp -v /supportFiles/99-dhcp-en.network $HOME/LIVE_BOOT/chroot/etc/systemd/network/99-dhcp-en.network

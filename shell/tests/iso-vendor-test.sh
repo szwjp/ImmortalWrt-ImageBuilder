@@ -207,11 +207,34 @@ else
     bad "ddd 没有在写入前校验目标盘容量"
 fi
 
-# live 安装器只需本地控制台: 留着 sshd 等于同网段任何人都能 root 登录后 dd 磁盘
-if grep -q 'systemctl disable ssh' "$ISO_DIR/supportFiles/installChroot.sh"; then
-    ok "installer live 环境禁用了 sshd"
+# live 安装器只需本地控制台: 完全不装 sshd, 从根上避免同网段 root 登录后 dd 磁盘
+if grep -qE 'openssh-server|systemctl (enable|disable) ssh' "$ISO_DIR/supportFiles/installChroot.sh"; then
+    bad "installer live 环境仍在安装/管理 sshd(应完全不装)"
 else
-    bad "installer live 环境仍开着 sshd"
+    ok "installer live 环境不装 sshd"
+fi
+
+# 构建镜像只装真正用到的工具。parted / syslinux-efi / grub-pc-bin 在本链路里
+# 没有任何调用点(EFI 用 grub-mkstandalone + x86_64-efi 模块, BIOS 用 isolinux)。
+if grep -qE 'syslinux-efi|grub-pc-bin|parted' "$ISO_DIR/supportFiles/custom/build.sh"; then
+    bad "ISO builder 又装回未使用的依赖(parted/syslinux-efi/grub-pc-bin)"
+else
+    ok "ISO builder 不装未使用的依赖"
+fi
+
+# 死产物: packages.txt 生成后没有任何步骤上传或发布
+if grep -q 'packages.txt' "$ISO_DIR/supportFiles/custom/build.sh" \
+   "$ISO_DIR/supportFiles/installChroot.sh"; then
+    bad "ISO 链路又在生成无人使用的 packages.txt"
+else
+    ok "ISO 链路不生成死产物 packages.txt"
+fi
+
+# autobuild 只接受唯一的生产格式 .img.gz(x86-64/build.sh 的产物)
+if grep -qE '"\*\.zip"|"\*\.xz"|"\*\.img"' "$ISO_DIR/autobuild.sh"; then
+    bad "autobuild.sh 又支持了没有生产路径的固件格式"
+else
+    ok "autobuild.sh 只支持 .img.gz"
 fi
 
 # 发布说明里不能再有上游的加速站链接与徽章

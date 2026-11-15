@@ -36,25 +36,15 @@ mkdir -p imm output
 filename=$(basename -- "$RECEIVE_FILE")
 echo "固件: $filename"
 
-# 解压成 imm/custom.img。固件由 build.sh 产出, 固定是 .img.gz。
+# 解压成 imm/custom.img。唯一的生产者是 x86-64/build.sh, 固定输出 .img.gz;
+# 其它格式没有生产路径, 不做支持。
 case "$filename" in
     *.gz)
         echo "解压 gzip"
         gunzip -f -c "$RECEIVE_FILE" > imm/custom.img
         ;;
-    *.zip)
-        echo "解压 zip"
-        unzip -p "$RECEIVE_FILE" '*.img' > imm/custom.img
-        ;;
-    *.xz)
-        echo "解压 xz"
-        xz -d -c "$RECEIVE_FILE" > imm/custom.img
-        ;;
-    *.img)
-        cp -f "$RECEIVE_FILE" imm/custom.img
-        ;;
     *)
-        echo "错误: 不支持的固件格式: $filename" >&2
+        echo "错误: 只支持 .img.gz 固件, 收到: $filename" >&2
         exit 1
         ;;
 esac

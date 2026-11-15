@@ -24,7 +24,7 @@ MIT 协议，作者 Daniel William Powers。原始许可证保留在 [`iso/LICEN
 | `supportFiles/custom/ddd` | 菜单文案由「Custom OpenWrt」改为「ImmortalWrt」，与本仓库实际构建的固件一致。另外补了三处安全/正确性：只列可写整盘（避免写掉安装介质）、写入前比较镜像与目标盘容量、检查 `dd` 退出码（失败不再谎报安装成功）。 |
 | `supportFiles/custom/grub.cfg` | 引导菜单项名称同上。 |
 | `supportFiles/custom/isolinux.cfg` | BIOS 引导菜单项名称同上（上游原样是「Custom OpenWrt Installer」，只有 EFI 菜单改过会导致两种引导方式文案不一致）。 |
-| `supportFiles/installChroot.sh` | 补 `set -euo pipefail`：该脚本跑在 `chroot` 里，容器入口的 `set -e` 管不到它，任何一步 apt 失败若被放过会静默产出缺包的 ISO。同时给 apt 加网络重试（归档源易抖动），并在 live 环境禁用 sshd（安装器只需本地控制台，避免同网段用 root 登录后误写磁盘）。 |
+| `supportFiles/installChroot.sh` | 补 `set -euo pipefail`：该脚本跑在 `chroot` 里，容器入口的 `set -e` 管不到它，任何一步 apt 失败若被放过会静默产出缺包的 ISO。同时给 apt 加网络重试（归档源易抖动）；安装包收敛到内核/live-boot/systemd/网卡固件，不装 sshd（安装器只需本地控制台，避免同网段用 root 登录后误写磁盘）。 |
 | `info.md` | 重写发布说明。删掉上游的 cpolar 加速站链接与 shields.io 徽章；修正上游说明里「LAN 口 IP 为 192.168.100.1」的错误（本仓库固件实际是 `192.168.1.1`，且可在工作流里改）。 |
 
 其余文件（`override.conf`、`99-dhcp-en.network`、`grub-standalone.cfg`）与上游一致。

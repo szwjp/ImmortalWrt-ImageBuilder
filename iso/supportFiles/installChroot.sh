@@ -35,8 +35,10 @@ dpkg-reconfigure --frontend=noninteractive locales
 update-locale LANG=en_US.UTF-8
 
 echo Install packages
-apt-get install -y --no-install-recommends linux-image-amd64 live-boot systemd-sysv
-apt-get install -y parted openssh-server bash-completion cifs-utils curl dbus dosfstools firmware-linux-free gddrescue gdisk iputils-ping isc-dhcp-client less nfs-common ntfs-3g openssh-client open-vm-tools procps vim wimtools wget
+# 只装安装流程真正用到的: 内核、live-boot、systemd、网卡固件, 以及 iproute2
+# (发布说明让用户用 `ip a` 查地址)。dd/lsblk 等由 Debian 基础系统提供。
+# 刻意不装 sshd: 安装器只需本地控制台, 同网段 root 登录就能 dd 磁盘。
+apt-get install -y --no-install-recommends linux-image-amd64 live-boot systemd-sysv firmware-linux-free iproute2
 
 echo Clean apt post-install
 apt-get clean
@@ -44,17 +46,9 @@ apt-get clean
 echo Enable systemd-networkd as network manager
 systemctl enable systemd-networkd
 
-# 安装器只需要本地控制台(autologin 见 override.conf)。live 环境下 sshd 一旦
-# 开着, 同网段任何人都能用 root 登录并 dd 掉磁盘 —— 本地控制台足够, 关掉它。
-echo Disable sshd in the live environment
-systemctl disable ssh 2>/dev/null || true
-
 echo Set resolv.conf to use systemd-resolved
 rm -f /etc/resolv.conf
 ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 echo Remove machine-id
 rm -f /etc/machine-id
-
-echo List installed packages
-dpkg --get-selections | tee /packages.txt

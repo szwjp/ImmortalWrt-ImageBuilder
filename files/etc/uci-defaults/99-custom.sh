@@ -6,36 +6,12 @@
 LOGFILE="/tmp/99-custom.log"
 echo "Starting 99-custom.sh at $(date)" >>"$LOGFILE"
 
-# 找到 firewall 里 name 为 wan 的 zone section。
-# 兼容两种写法: 匿名段(config zone + option name 'wan', 输出 @zone[N])
-# 与具名段(config zone 'wan', 输出 wan)。老实现只认匿名段。
-find_wan_zone() {
-    local line sek name
-    for line in $(uci show firewall 2>/dev/null | grep -E '^firewall\.[^.=]+=zone$'); do
-        sek=${line%%=*}
-        sek=${sek#firewall.}
-        name=$(uci -q get "firewall.$sek.name")
-        [ -n "$name" ] || name="$sek"
-        if [ "$name" = "wan" ]; then
-            printf '%s' "$sek"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# 放开 wan zone 的入站。仅在单网口设备调用:
-# 单网口没有独立的 LAN 口, 首访 WebUI 只能走这唯一网口, 需要放行;
-# 多网口设备用 LAN 静态地址访问, 不该在 WAN 上开洞(保持默认 REJECT)。
-open_wan_input() {
-    local wan_zone
-    if wan_zone=$(find_wan_zone); then
-        uci set "firewall.$wan_zone.input=ACCEPT"
-        echo "wan zone '$wan_zone' input -> ACCEPT (单网口首访用)" >>"$LOGFILE"
-    else
-        echo "error: cannot find wan zone in firewall config" >>"$LOGFILE"
-    fi
-}
+# 刻意不改 firewall 的 zone 入站策略。
+#
+# 单网口设备的唯一网口在默认配置里属于 lan zone: /etc/board.d/99-default_network
+# 固定把 eth0 映射成 lan, 只有 eth1 存在时才建 wan。lan zone 默认 input ACCEPT,
+# 首访 WebUI 本来就能通。给 wan zone 开 ACCEPT 既没有实际作用, 又会在以后有人
+# 添加 wan 接口时白送一个入站放行, 所以这里不做。
 
 # 检查配置文件pppoe-settings是否存在 该文件由build.sh动态生成
 SETTINGS_FILE="/etc/config/pppoe-settings"
@@ -77,19 +53,9 @@ echo "Interface count: $count" >>$LOGFILE
 board_name=$(cat /tmp/sysinfo/board_name 2>/dev/null || echo "unknown")
 echo "Board detected: $board_name" >>$LOGFILE
 
-wan_ifname=""
-lan_ifnames=""
-# 默认最后一个接口为WAN，其余为LAN
-total_interfaces=$(echo "$ifnames" | wc -w)
-wan_ifname=$(echo "$ifnames" | awk -v total="$total_interfaces" '{print $total}')
-lan_ifnames=$(echo "$ifnames" | awk -v total="$total_interfaces" '{for(i=1;i<total;i++) printf "%s ", $i; if(total>1) printf "\n"}' | sed 's/[[:space:]]*$//')
-echo "Using last interface as WAN mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
-
 # 3. 配置网络
 if [ "$count" -eq 1 ]; then
-    # 单网口: 唯一网口既是 LAN 也是 WAN, 首访 WebUI 需要放开入站
-    open_wan_input
-    # 单网口设备，DHCP模式
+    # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
     uci set network.lan.proto='dhcp'
     uci delete network.lan.ipaddr
     uci delete network.lan.netmask
@@ -99,6 +65,11 @@ if [ "$count" -eq 1 ]; then
         echo "error: uci commit network failed" >>$LOGFILE
     }
 elif [ "$count" -gt 1 ]; then
+    # 默认最后一个接口为WAN，其余为LAN
+    wan_ifname=$(echo "$ifnames" | awk -v total="$count" '{print $total}')
+    lan_ifnames=$(echo "$ifnames" | awk -v total="$count" '{for(i=1;i<total;i++) printf "%s ", $i; if(total>1) printf "\n"}' | sed 's/[[:space:]]*$//')
+    echo "Using last interface as WAN mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
+
     # 多网口设备配置
     # 配置WAN
     uci set network.wan=interface
@@ -226,17 +197,18 @@ fi
 # 显式提交本脚本改动过的包。
 # 不用裸 "uci commit"(提交全部包): 那会把其它脚本在同一批次里留下的半成品
 # 改动一起写盘。uci commit 一次只能提交一个包(多包会报 usage 错), 所以逐个提交。
-# network 包在上面的分支里已单独提交, 这里不重复。
+# network 包在上面的分支里已单独提交, firewall 已由 docker 段自己提交, 这里不重复。
 # 逐个包用 -q: 某个包不存在时(如未装 ttyd)只跳过它, 不刷错误也不中断脚本。
-uci -q commit firewall
 uci -q commit dropbear
 uci -q commit ttyd
 
-# 设置编译作者信息
+# 在原有版本描述后追加打包者信息。
+# 不能整行替换: DISTRIB_DESCRIPTION 是 LuCI 状态页显示的固件版本行,
+# 覆盖成一句署名后, 界面上就看不到版本号了。
 FILE_PATH="/etc/openwrt_release"
-NEW_DESCRIPTION="Packaged by szwjp"
+PACKAGER_SUFFIX=" (Packaged by szwjp)"
 if [ -f "$FILE_PATH" ]; then
-    sed -i "s/DISTRIB_DESCRIPTION='[^']*'/DISTRIB_DESCRIPTION='$NEW_DESCRIPTION'/" "$FILE_PATH"
+    sed -i "s/^\(DISTRIB_DESCRIPTION='\)\([^']*\)'\$/\1\2${PACKAGER_SUFFIX}'/" "$FILE_PATH"
 fi
 
 # 若安装了dockerd 则设置docker的防火墙规则
