@@ -11,8 +11,8 @@
 # 这里把这份契约、以及首启脚本里几处"错了不报错"的逻辑做成硬断言。
 set -u
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 CUSTOM="$REPO_ROOT/files/etc/uci-defaults/99-custom.sh"
 BUILD="$REPO_ROOT/x86-64/build.sh"
 WORKFLOW="$REPO_ROOT/.github/workflows/build-x86-64.yml"

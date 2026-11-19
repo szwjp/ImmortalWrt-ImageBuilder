@@ -1,0 +1,14 @@
+version: 2
+# 第三方 Actions 全部 pin 到 commit SHA 后, 版本更新走 PR 而不是自动漂移。
+# Dependabot 会同时更新 SHA 与行尾的 `# vX.Y.Z` 注释。
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"

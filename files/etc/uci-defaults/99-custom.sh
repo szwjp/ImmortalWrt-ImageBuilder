@@ -11,6 +11,7 @@ echo "Starting 99-custom.sh at $(date)" >>"$LOGFILE"
 # workflow 与这里各写一份, 规则一改就漂移。
 IP_LIB="/usr/lib/imm/validate-ip.sh"
 if [ -r "$IP_LIB" ]; then
+    # shellcheck disable=SC1090  # 固件内固定路径, 本地不存在属正常
     . "$IP_LIB"
 else
     echo "warning: $IP_LIB 不存在, 管理地址将退回默认值" >>"$LOGFILE"

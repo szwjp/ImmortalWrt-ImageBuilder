@@ -8,8 +8,8 @@
 # 旧测试把 0.0.0.0、255.255.255.255 当成合法地址, 等于在保护错误行为。
 set -u
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 VALIDATE="$REPO_ROOT/shell/validate-ip.sh"
 
 pass=0
@@ -51,6 +51,7 @@ else
 fi
 
 # ---- 函数接口(source 到首启脚本里的用法) ----
+# shellcheck disable=SC1090
 . "$VALIDATE"
 if ip_is_usable 192.168.1.1; then
   ok "source 后函数可用: 192.168.1.1"

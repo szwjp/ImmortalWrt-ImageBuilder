@@ -110,6 +110,8 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
 # 语法: "-包名" = 从构建里排除掉(ImageBuilder 的 PACKAGES 参数语义,
 # 见其 Makefile:144 "-\"pkgname\" in the package list means remove \"pkgname\"":
 # x86 target 的 ImageBuilder 默认带 autocore(自动调频), 与主仓库核心集口径不一致, 排除掉。
+# 由 x86-64/build.sh source 后拼进 PACKAGES, 本文件内不直接引用
+# shellcheck disable=SC2034
 EXCLUDE_PACKAGES="-autocore"
 
 # ============= 官方 LuCI 应用 =============

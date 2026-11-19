@@ -21,9 +21,9 @@ fi
 # 必须在 cd 之前转成绝对路径: 下面会切到 ISO_DIR, 而调用方给的固件路径
 # 往往是相对当前工作目录的(CI 里是工作区根目录)。先转绝对路径, 否则
 # 切目录后就找不到文件了。
-RECEIVE_FILE=$(CDPATH= cd -- "$(dirname -- "$RECEIVE_FILE")" && pwd)/$(basename -- "$RECEIVE_FILE")
+RECEIVE_FILE=$(CDPATH='' cd -- "$(dirname -- "$RECEIVE_FILE")" && pwd)/$(basename -- "$RECEIVE_FILE")
 
-ISO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ISO_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$ISO_DIR"
 
 # debian:buster 是构建 ISO 的宿主环境(要在里面跑 debootstrap + xorriso)。

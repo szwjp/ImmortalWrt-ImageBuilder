@@ -65,10 +65,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 40
+    # ISO job 用同一个 ImageBuilder digest 写进 build-info, 不重复解析
+    outputs:
+      digest: ${{ steps.ib.outputs.digest }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Validate inputs
         # 所有输入一律经 env: 传入, run: 脚本里不出现 ${{ inputs.* }}。
@@ -213,6 +216,7 @@ jobs:
 
           - `<固件>.sha256`: 下载后执行 `sha256sum -c <固件>.sha256` 校验完整性
           - `<固件>.manifest`: 固件内软件包清单, 可直接核对装了哪些包
+          - `build-info.json`: 构建输入与产物指纹(commit、版本、ImageBuilder digest、输入文件与产物 SHA256)
           EOF
 
       # 发布资产统一先落到 dist/: 固件 + sha256 + ImageBuilder 的 .manifest。
@@ -233,9 +237,28 @@ jobs:
           done
           ls -l "$dist"
 
+      # 把本次构建的输入与产物指纹写进 dist/, 随发布资产一起上传。
+      # 只记录哈希, 不记录任何凭据。
+      - name: Generate build info (img)
+        if: inputs.output_format == 'img'
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          LUCI_VERSION: ${{ inputs.luci_version }}
+          IMAGEBUILDER_DIGEST: ${{ steps.ib.outputs.digest }}
+        run: |
+          set -euo pipefail
+          artifact=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
+          [ -n "$artifact" ] || { echo "::error::dist/ 里找不到固件产物"; exit 1; }
+          sh shell/build-info.sh "$GITHUB_WORKSPACE/dist/build-info.json" "$artifact"
+
       - name: Upload firmware as release (img)
         if: inputs.output_format == 'img'
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: Autobuild-x86-64
           body_path: ${{ github.workspace }}/router-info.md
@@ -269,7 +292,7 @@ jobs:
 
       - name: Upload firmware artifact (for ISO)
         if: inputs.output_format == 'iso'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: firmware-img
           path: "*.img.gz"
@@ -284,10 +307,10 @@ jobs:
       # ISO 构建脚本已 vendored 进本仓库的 iso/ 目录, 不再 clone 第三方仓库。
       # 需要 checkout 才能拿到 iso/ 下的脚本。
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Download firmware artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: firmware-img
 
@@ -313,7 +336,7 @@ jobs:
 
       - name: Build ISO
         run: |
-          firmware_file=$(ls *squashfs-combined-efi.img.gz)
+          firmware_file=$(ls ./*squashfs-combined-efi.img.gz)
           bash iso/autobuild.sh "$firmware_file"
 
       - name: Stage release assets (ISO)
@@ -326,8 +349,27 @@ jobs:
           ( cd "$dist" && sha256sum custom-installer-x86_64.iso > custom-installer-x86_64.iso.sha256 )
           ls -l "$dist"
 
+      # ISO 的 build-info 额外带 firmware img 与 ISO 构建宿主镜像
+      - name: Generate build info (ISO)
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          LUCI_VERSION: ${{ inputs.luci_version }}
+          IMAGEBUILDER_DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          artifact=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.iso' -print -quit)
+          extra=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name '*.img.gz' -print -quit)
+          [ -n "$artifact" ] || { echo "::error::dist/ 里找不到 ISO 产物"; exit 1; }
+          [ -n "$extra" ] || { echo "::error::工作区根目录找不到用于 ISO 的固件 img.gz"; exit 1; }
+          sh shell/build-info.sh "$GITHUB_WORKSPACE/dist/build-info.json" "$artifact" "$extra"
+
       - name: Upload ISO to Release
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: "Custom-Installer-x86_64-ISO"
           body_path: "${{ github.workspace }}/iso/info.md"

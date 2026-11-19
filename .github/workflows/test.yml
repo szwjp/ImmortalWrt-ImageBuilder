@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Shell syntax check
         run: |
@@ -40,6 +40,29 @@ jobs:
             sh -n "$f"
             echo "OK  sh -n $f"
           done
+
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          # runner 镜像一般自带; 没有就装, 避免版本差异直接把 CI 卡死
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y shellcheck
+          fi
+          # 只拦 warning 及以上; info 级由 actionlint 对 workflow 里的脚本再查一遍
+          { git ls-files '*.sh'; echo iso/supportFiles/custom/ddd; } | xargs shellcheck -S warning
+
+      - name: Actionlint
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          base="https://github.com/rhysd/actionlint/releases/download/v${version}"
+          curl -fsSL --retry 3 --retry-delay 2 -o actionlint.tar.gz "${base}/actionlint_${version}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 2 -o actionlint_checksums.txt "${base}/actionlint_${version}_checksums.txt"
+          # 校验下载包的 SHA256 后再解压执行, 不裸跑下载来的二进制
+          grep " actionlint_${version}_linux_amd64.tar.gz$" actionlint_checksums.txt | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color
 
       - name: Shell tests
         run: sh shell/tests/run-all.sh

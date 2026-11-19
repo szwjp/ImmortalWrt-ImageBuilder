@@ -4,8 +4,8 @@
 # 退出码 0 = 全部通过; 1 = 有失败
 set -u
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 REFRESH="$REPO_ROOT/shell/refresh-release-date.sh"
 
 TMP=$(mktemp -d)

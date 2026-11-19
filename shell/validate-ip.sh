@@ -14,6 +14,8 @@
 # 为什么单独成文件: workflow 的 bash 与固件首启脚本的 ash 必须用同一份规则。
 # 各写一份迟早漂移 —— 以前的测试甚至把 0.0.0.0 和 255.255.255.255 断言成合法。
 ip_is_usable() {
+    # ash/dash/bash 都支持 local; 按纯 POSIX 检查会误报
+    # shellcheck disable=SC3043
     local ip o1 o2 o4 rest
 
     ip=${1:-}

@@ -9,8 +9,8 @@
 # 所以把每一条都做成硬断言。
 set -u
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 WORKFLOW="$REPO_ROOT/.github/workflows/build-x86-64.yml"
 CLEAN="$REPO_ROOT/.github/workflows/clean-workflow.yml"
 TEST_WF="$REPO_ROOT/.github/workflows/test.yml"
@@ -207,6 +207,42 @@ if [ -n "$choice_versions" ] && [ "$choice_versions" = "$digest_versions" ]; the
   ok "版本 allowlist 与 digest 映射一致"
 else
   bad "版本 allowlist 与 digest 映射不一致(choice 放行的版本必须有 digest)"
+fi
+
+# ================================================================
+# 12. 供应链: 第三方 action 固定到 40 位 commit SHA, 更新走 Dependabot
+# ================================================================
+bad_actions=$(grep -hE '^[[:space:]]+uses:' "$WORKFLOW" "$TEST_WF" "$CLEAN" \
+  | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
+if [ -z "$bad_actions" ]; then
+  ok "所有 action 都固定到 commit SHA"
+else
+  bad "以下 action 没固定到 SHA: $bad_actions"
+fi
+
+if [ -f "$REPO_ROOT/.github/dependabot.yml" ] && grep -q 'github-actions' "$REPO_ROOT/.github/dependabot.yml"; then
+  ok "Dependabot 配置了 github-actions 更新"
+else
+  bad "没有 dependabot.yml, SHA 固定后版本更新会断掉"
+fi
+
+# ================================================================
+# 13. 构建元数据: build-info.json 必须由脚本生成并随 release 上传
+# ================================================================
+if [ -f "$REPO_ROOT/shell/build-info.sh" ]; then
+  ok "存在 shell/build-info.sh"
+else
+  bad "缺少 shell/build-info.sh"
+fi
+if [ "$(grep -c 'sh shell/build-info.sh' "$WORKFLOW")" -ge 2 ]; then
+  ok "img 与 ISO 两条链路都生成 build-info.json"
+else
+  bad "只有一条链路生成 build-info.json(img/ISO 需各一处)"
+fi
+if grep -qF 'dist/*' "$WORKFLOW"; then
+  ok "build-info.json 随 dist/* 一起上传"
+else
+  bad "发布资产没有覆盖 dist/*, build-info.json 不会上传"
 fi
 
 echo

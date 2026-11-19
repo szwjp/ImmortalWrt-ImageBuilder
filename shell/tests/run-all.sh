@@ -8,7 +8,7 @@
 # shell/tests/ 就会被自动跑到, 不用改 workflow。
 set -u
 
-TESTS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+TESTS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 failed=""
 for t in "$TESTS_DIR"/*-test.sh; do

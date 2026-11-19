@@ -50,6 +50,21 @@ bash iso/autobuild.sh <固件.img.gz>
 - `archive.debian.org` —— Debian buster 归档包（Buster 已 EOL，只有归档源）
 - `deb.debian.org` —— 不再使用
 
+## 已知限制（保持现状）
+
+ISO 只是本项目的顺带产出，当前不计划迁移构建环境：
+
+- 构建宿主与安装器用户态是 `debian:buster`（已 EOL），chroot 内 `apt-get upgrade`
+  只能拿到归档源里最后一批包，不会再有新的安全更新。
+- 安装器内核是 buster 的 `linux-image-amd64`，较新的网卡/存储控制器可能识别不到。
+- 没有在真实新硬件上做过 BIOS/UEFI 启动与写盘验收；仓库内测试只覆盖构建链路与
+  脚本契约，不代表"能装到任意 x86-64 机器"。
+- 产物没有签名，`sha256sum` 只能验证下载完整性，不能证明构建来源。
+
+需要迁移时，改动点集中在 `supportFiles/custom/build.sh` 的 debootstrap 发行版、
+`supportFiles/sources.list`、`supportFiles/installChroot.sh` 的包集合，以及
+`autobuild.sh` 的宿主镜像；迁移后必须重新验证 BIOS/UEFI 启动、`ddd` 识别磁盘与写盘。
+
 ## 更新到新的上游版本
 
 上游仓库名见「出处」一节。拉取到本地后切到目标 commit，再对比

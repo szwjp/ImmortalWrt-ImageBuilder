@@ -1,5 +1,6 @@
 #### 格式ISO: 此文件是通过ImmortalWrt-ImageBuilder项目构建的
-#### 适用范围：所有虚拟机和物理机通用 皆可引导 用于安装ImmortalWrt
+#### 适用范围：常见的 x86-64 虚拟机与物理机，用于安装 ImmortalWrt
+> 安装器基于 Debian Buster（已 EOL），内核较旧；很新的网卡/存储控制器可能识别不到。详见项目 `iso/README.md` 的「已知限制」。
 #### 使用方法：
 - 虚拟机使用：各种虚拟机直接选择iso 作为开机引导即可
 - 物理机使用：建议将iso放入ventoy的U盘中
@@ -8,6 +9,8 @@
 #### 校验
 下载后可用同目录的 `custom-installer-x86_64.iso.sha256` 校验完整性：
 `sha256sum -c custom-installer-x86_64.iso.sha256`
+
+> 校验和只能证明下载完整，产物没有签名。另附 `build-info.json`，可追溯 commit、ImageBuilder digest 与构建输入哈希。
 
 #### 安装后 默认情况 若没有更改 则固件信息如下
 - 用户名root 密码 无

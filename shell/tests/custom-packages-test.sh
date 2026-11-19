@@ -9,8 +9,8 @@
 # 这里把几条容易漂移、且漂移了不会自己报警的规则做成硬断言。
 set -u
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 SRC="$REPO_ROOT/shell/custom-packages.sh"
 
 pass=0
