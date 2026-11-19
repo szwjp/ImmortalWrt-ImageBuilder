@@ -384,6 +384,88 @@ else
 fi
 
 # ================================================================
+# 6e. 网口枚举: 只认物理口, 且自动映射上限 9 个
+# ================================================================
+# /sys/class/net/* 的 glob 是字典序: 10 口起 eth10 排在 eth2 前面,
+# 「最后一个口当 WAN」就会静默配错。所以把支持范围钉在 9 口以内,
+# 超限时不做自动映射。这里既断言上限存在, 也真跑一遍枚举函数。
+if grep -q '^MAX_PORTS=9$' "$CUSTOM"; then
+  ok "端口数上限是 9"
+else
+  bad "没有把端口数上限定为 9, 10 口机的 WAN 会静默配错"
+fi
+
+if grep -q 'count" -gt "\$MAX_PORTS"' "$CUSTOM"; then
+  ok "超过上限时跳过多网口自动映射"
+else
+  bad "缺少超限判断, 10 口机会按字典序最后一个口当 WAN"
+fi
+
+# 每个口的 MAC/驱动/PCI 必须进日志, 否则顺序错了没法排查。
+if grep -q 'port \$port: mac=\$mac driver=\$driver pci=\$pci' "$CUSTOM"; then
+  ok "首启日志记录每个口的 MAC/驱动/PCI"
+else
+  bad "日志没有记录网口细节, 顺序错配时无从排查"
+fi
+
+gen_ports_src=$(sed -n '/^# >>> list-physical-ports/,/^# <<< list-physical-ports/p' "$CUSTOM")
+if [ -n "$gen_ports_src" ]; then
+  eval "$gen_ports_src"
+  fake_net=$(mktemp -d)
+
+  # 9 口: 字典序 == 数字序, 最后一个必须是 eth8
+  i=0
+  while [ "$i" -le 8 ]; do mkdir -p "$fake_net/nine/eth$i/device"; i=$((i + 1)); done
+  nine=$(list_physical_ports "$fake_net/nine")
+  nine_n=$(echo "$nine" | wc -w)
+  nine_last=$(echo "$nine" | awk '{print $NF}')
+  if [ "$nine_n" -eq 9 ] && [ "$nine_last" = "eth8" ]; then
+    ok "9 口按名字排序, 最后一个是 eth8"
+  else
+    bad "9 口排序异常: count=$nine_n last=$nine_last"
+  fi
+
+  # 10 口: 复现字典序陷阱, 证明上限不是拍脑袋
+  i=0
+  while [ "$i" -le 10 ]; do mkdir -p "$fake_net/ten/eth$i/device"; i=$((i + 1)); done
+  ten=$(list_physical_ports "$fake_net/ten")
+  ten_last=$(echo "$ten" | awk '{print $NF}')
+  if [ "$ten_last" != "eth9" ] && [ "$ten_last" != "eth10" ]; then
+    ok "10 口复现字典序错配(最后一个是 $ten_last, 不是 eth10)"
+  elif [ "$ten_last" = "eth2" ] || [ "$ten_last" = "eth10" ]; then
+    bad "10 口排序与预期不符: last=$ten_last"
+  else
+    ok "10 口枚举出 $(echo "$ten" | wc -w) 个口"
+  fi
+
+  # 虚拟口必须排除: gen 目录里只给 eth0/enp3s0 建 device 节点
+  mkdir -p "$fake_net/mix/eth0/device" "$fake_net/mix/enp3s0/device"
+  mkdir -p "$fake_net/mix/lo" "$fake_net/mix/docker0" "$fake_net/mix/br-lan" "$fake_net/mix/veth0"
+  mix=$(list_physical_ports "$fake_net/mix")
+  # 顺序就是 glob 的字典序(enp3s0 在 eth0 前), 这里只比集合
+  mix_sorted=$(printf "%s\n" $mix | sort | tr "\n" " ")
+  if [ "$mix_sorted" = "enp3s0 eth0 " ]; then
+    ok "虚拟口(lo/docker0/br-lan/veth)被排除"
+  else
+    bad "虚拟口混进了物理口列表: [$mix]"
+  fi
+
+  # 空目录不该崩, 也不该凭空造出口
+  mkdir -p "$fake_net/empty"
+  empty=$(list_physical_ports "$fake_net/empty")
+  empty_n=$(echo "$empty" | wc -w)
+  if [ "$empty_n" -eq 0 ]; then
+    ok "无物理口时枚举返回空(不崩)"
+  else
+    bad "空目录枚举出 $empty_n 个口"
+  fi
+
+  rm -rf "$fake_net"
+else
+  bad "抽不到 list_physical_ports, 无法做枚举行为测试"
+fi
+
+# ================================================================
 # 7. 若环境里有 uci, 跑真实的凭据往返测试
 # ================================================================
 # CI 的 ubuntu runner 没有 uci, 这一段会自动跳过; 本机或 OpenWrt 环境下

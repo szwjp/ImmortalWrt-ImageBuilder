@@ -120,18 +120,43 @@ else
 fi
 
 # 1. 先获取所有物理接口列表
-ifnames=""
-for iface in /sys/class/net/*; do
-    iface_name=$(basename "$iface")
-    if [ -e "$iface/device" ] && echo "$iface_name" | grep -Eq '^eth|^en'; then
-        ifnames="$ifnames $iface_name"
-    fi
-done
-ifnames=$(echo "$ifnames" | awk '{$1=$1};1')
+# 目录参数只给测试用(测试建一棵假的 sysfs 树), 固件里永远走默认路径。
+# >>> list-physical-ports
+list_physical_ports() {
+    net_dir="${1:-/sys/class/net}"
+    ports=""
+    for iface in "$net_dir"/*; do
+        name=$(basename "$iface")
+        # 有 device 节点的才是物理口: 排除 lo、br-lan、veth、docker0 之类虚拟口
+        [ -e "$iface/device" ] || continue
+        case "$name" in
+            eth*|en*) ports="$ports $name" ;;
+        esac
+    done
+    printf '%s\n' "$ports" | awk '{$1=$1};1'
+}
+# <<< list-physical-ports
 
+ifnames=$(list_physical_ports)
 count=$(echo "$ifnames" | wc -w)
 echo "Detected physical interfaces: $ifnames" >>$LOGFILE
 echo "Interface count: $count" >>$LOGFILE
+
+# 每个口的 MAC/驱动/PCI 路径都记进日志: 网口顺序错了、WAN 落到不认识的口上时,
+# 用户能据此判断是硬件对不上还是脚本判错, 不用靠猜。
+for port in $ifnames; do
+    mac=$(cat "/sys/class/net/$port/address" 2>/dev/null)
+    driver=$(basename "$(readlink -f "/sys/class/net/$port/device/driver" 2>/dev/null)")
+    pci=$(basename "$(readlink -f "/sys/class/net/$port/device" 2>/dev/null)")
+    echo "port $port: mac=$mac driver=$driver pci=$pci" >>$LOGFILE
+done
+
+# 支持上限。为什么是 9: 枚举依赖 /sys/class/net/* 的 glob, 那是字典序,
+# 从第 10 个口开始 eth10 会排在 eth2 前面, "最后一个口当 WAN" 必然配错,
+# 而且不报错。9 口以内 ethN 的字典序恰好等于数字序, 这条规则才站得住。
+# 超限就不做自动映射, 保住镜像默认配置(lan=eth0、wan=eth1), 其余口留给用户
+# 在 LuCI 里手工指定 —— 宁可少配, 不写出一个静默错配的 WAN。
+MAX_PORTS=9
 
 # 2. 映射WAN和LAN接口
 #    /etc/board.json 不在镜像里, 而是首次启动时由 /etc/board.d/* 生成,
@@ -142,7 +167,10 @@ board_name=$(cat /tmp/sysinfo/board_name 2>/dev/null || echo "unknown")
 echo "Board detected: $board_name" >>$LOGFILE
 
 # 3. 配置网络
-if [ "$count" -eq 1 ]; then
+if [ "$count" -gt "$MAX_PORTS" ]; then
+    # 超限: 不动 network, 也不猜哪个口是 WAN。日志写清楚让用户手工配。
+    echo "error: 检测到 $count 个物理网口, 超过自动映射上限 $MAX_PORTS, 跳过网口自动配置(保留镜像默认: lan=eth0、wan=eth1, 其余口请在 LuCI 手工指定)" >>"$LOGFILE"
+elif [ "$count" -eq 1 ]; then
     # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
     # 但这也意味着设备会直接接入上游局域网: 管理面就在那一侧, 所以下面必须
     # 先把 root 密码设上, 不能让"默认无密码"的状态活在别人的网段里。
