@@ -666,6 +666,13 @@ else
   ok "PPPoE 下不再把 wan6 置 none"
 fi
 
+# PPPoE 下必须把 wan.ipv6 交回 auto, 否则平台不会建动态 wan_6, 而脚本又不建
+# UCI wan6 → 整机没有 IPv6 客户端(实机 VM301 复现)。
+if awk '/PPPoE enabled, configuring/{f=1} /PPPoE config done/{f=0} f && /uci -q delete network.wan.ipv6/{ok=1} END{exit !ok}' "$CUSTOM"; then
+  ok "PPPoE 分支删除 wan.ipv6, 交回 auto(保证 platform 建 wan_6)"
+else
+  bad "PPPoE 分支没处理 wan.ipv6; 若上游设成 1 就不会有 wan_6, 也没 UCI wan6"
+fi
 if grep -q 'uci -q get network.wan6 >/dev/null' "$CUSTOM"; then
   ok "创建前先探测 wan6 是否已存在"
 else

@@ -321,6 +321,12 @@ elif [ "$count" -gt 1 ]; then
     echo "enable_pppoe value: $enable_pppoe" >>$LOGFILE
     if [ "$enable_pppoe" = "yes" ]; then
         echo "PPPoE enabled, configuring..." >>$LOGFILE
+        # 平台的自动 IPv6 客户端(wan_6) 依赖 ppp.sh 的 autoipv6 分支: 只有
+        # wan.ipv6 未设置或为 auto 时 ppp6-up 才会 add_dynamic 建 wan_6。
+        # 一旦上游把它显式写成 1, 就不会有 wan_6, 而我们又不再建 UCI wan6 ——
+        # 那台机器会完全没有 IPv6 客户端(实机 VM301 复现过)。这里删掉该选项,
+        # 把选择权交回平台的 auto 行为。
+        uci -q delete network.wan.ipv6
         uci set network.wan.proto='pppoe'
         uci set network.wan.username="$pppoe_account"
         uci set network.wan.password="$pppoe_password"
