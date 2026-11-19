@@ -167,9 +167,12 @@ find_brlan_section() {
 # <<< brlan-section
 
 # 是否要自动补 wan6: 只在「镜像里还没有 wan6」且「WAN 不是 PPPoE」时补。
-# wan6 是平台/LuCI 会自己维护的接口(PPPoE 下它的 device 应指向 pppoe-wan),
-# 无条件 uci set 会覆盖用户已配好的 IPv6; 启用 PPPoE 时硬塞一个指向物理口的
-# DHCPv6 客户端, 只会多出一个永远起不来的接口(实测在 LuCI 里就是重复的 IPv6 条目)。
+# 为什么 PPPoE 下不能补: PPP 链路起来后 /lib/netifd/ppp6-up 会自己用
+#   ubus call network add_dynamic 建一个名为 ${wan}_6 的动态 DHCPv6 客户端
+# (实测: ifstatus wan_6 -> dynamic:true, proto:dhcpv6, device:pppoe-wan)。
+# 它不在任何 UCI 配置文件里, 所以 uci show network 看不到; 此时再写一个 UCI
+# wan6, LuCI 里就会出现两个 IPv6 条目(wan_6 + wan6) —— 这正是实机反馈的现象。
+# 另外无条件 uci set 还会覆盖用户已配好的 wan6, 所以已有就一律不动。
 # >>> wan6-autoconfig
 wants_wan6() {
     # $1: 已有 wan6 则为 1; $2: enable_pppoe 的值
