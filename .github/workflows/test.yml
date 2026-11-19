@@ -56,12 +56,13 @@ jobs:
         run: |
           set -euo pipefail
           version="1.7.12"
+          tarball="actionlint_${version}_linux_amd64.tar.gz"
           base="https://github.com/rhysd/actionlint/releases/download/v${version}"
-          curl -fsSL --retry 3 --retry-delay 2 -o actionlint.tar.gz "${base}/actionlint_${version}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 2 -o "$tarball" "${base}/${tarball}"
           curl -fsSL --retry 3 --retry-delay 2 -o actionlint_checksums.txt "${base}/actionlint_${version}_checksums.txt"
           # 校验下载包的 SHA256 后再解压执行, 不裸跑下载来的二进制
-          grep " actionlint_${version}_linux_amd64.tar.gz$" actionlint_checksums.txt | sha256sum -c -
-          tar -xzf actionlint.tar.gz actionlint
+          grep " ${tarball}$" actionlint_checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" actionlint
           ./actionlint -color
 
       - name: Shell tests
