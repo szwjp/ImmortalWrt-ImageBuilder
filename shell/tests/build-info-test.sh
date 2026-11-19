@@ -92,7 +92,8 @@ else
 fi
 
 # ---- 失败路径 ----
-if COMMIT_SHA= LUCI_VERSION=25.12.2 IMAGEBUILDER_DIGEST=x sh "$BUILD_INFO" "$TMP/a.json" "$TMP/dist/test-squashfs-combined-efi.img.gz" >/dev/null 2>&1; then
+if env COMMIT_SHA= LUCI_VERSION=25.12.2 IMAGEBUILDER_DIGEST=x \
+   sh "$BUILD_INFO" "$TMP/a.json" "$TMP/dist/test-squashfs-combined-efi.img.gz" >/dev/null 2>&1; then
   bad "缺少 COMMIT_SHA 时没有拒绝"
 else
   ok "缺少环境变量时拒绝生成"
