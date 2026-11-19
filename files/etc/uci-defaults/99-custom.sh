@@ -122,6 +122,7 @@ fi
 # 1. 先获取所有物理接口列表
 # 目录参数只给测试用(测试建一棵假的 sysfs 树), 固件里永远走默认路径。
 # >>> list-physical-ports
+# shellcheck disable=SC2120  # 目录参数只给测试用, 固件里的调用永远不带参
 list_physical_ports() {
     net_dir="${1:-/sys/class/net}"
     ports=""
