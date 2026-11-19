@@ -6,6 +6,15 @@
 LOGFILE="/tmp/99-custom.log"
 echo "Starting 99-custom.sh at $(date)" >>"$LOGFILE"
 
+# 分阶段打点: 首启日志要能看出"卡在哪一步", 时间戳也让重试间隔可读。
+stage() { printf '=== [%s] %s ===\n' "$(date '+%H:%M:%S')" "$*" >>"$LOGFILE"; }
+
+# 结构性失败(找不到 br-lan、network 写盘失败)才返回非 0:
+# uci-defaults 只在退出 0 时删除脚本, 非 0 会被保留、下次启动重试。
+# 环境差异(没装 ttyd/nginx、uhttpd 段异常)不置位 —— 那些重试也没用,
+# 反而会把用户在 LuCI 里的改动冲掉。
+STRUCT_FAIL=0
+
 # 管理地址校验的唯一实现: 构建时由 build.sh 从 shell/validate-ip.sh 拷到
 # /usr/lib/imm/validate-ip.sh。本脚本只 source, 不再内联正则 —— 以前
 # workflow 与这里各写一份, 规则一改就漂移。
@@ -36,21 +45,21 @@ gen_first_boot_password() {
 
 lockdown_single_nic_password() {
     # 已经有密码就不动: 脚本可能被手动重跑, 不能每次启动都换密码。
-    root_hash=$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)
-    if [ -n "$root_hash" ]; then
+    nic_root_hash=$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)
+    if [ -n "$nic_root_hash" ]; then
         echo "single-nic: root 已有密码, 不生成随机密码" >>"$LOGFILE"
         return 0
     fi
 
-    pw=$(gen_first_boot_password)
+    nic_pw=$(gen_first_boot_password)
     # 生成失败宁可不设, 也不要写出空密码; 失败路径留在日志里。
-    if [ "${#pw}" -ne 16 ]; then
-        echo "error: 随机密码生成失败(长度 ${#pw})" >>"$LOGFILE"
+    if [ "${#nic_pw}" -ne 16 ]; then
+        echo "error: 随机密码生成失败(长度 ${#nic_pw})" >>"$LOGFILE"
         return 1
     fi
 
     # busybox passwd 从标准输入连读两遍; 不用 echo -e, 免得密码被当转义序列处理。
-    if ! printf '%s\n%s\n' "$pw" "$pw" | passwd root >/dev/null 2>&1; then
+    if ! printf '%s\n%s\n' "$nic_pw" "$nic_pw" | passwd root >/dev/null 2>&1; then
         echo "error: passwd 设置 root 密码失败" >>"$LOGFILE"
         return 1
     fi
@@ -64,20 +73,20 @@ lockdown_single_nic_password() {
 
     # 控制台是取密码的唯一通道。x86 上 /dev/console 通常是 tty0(接显示器),
     # 服务器/虚拟机是串口; 写不进去时退回 /dev/tty1。
-    msg="
+    nic_msg="
 ============================================================
  单网口首次启动: 已生成随机 root 密码
-   密码: $pw
+   密码: $nic_pw
  登录: http://<本机从上游 DHCP 得到的地址>/   (LuCI)
        ssh root@<同一地址>
  密码副本: /root/.first-boot-password (仅 root 可读)
  登录后请立即在 [系统 - 管理权] 修改密码, 并删除该文件。
 ============================================================"
-    printf '%s\n' "$msg" >/dev/console 2>/dev/null ||
-        printf '%s\n' "$msg" >/dev/tty1 2>/dev/null || true
+    printf '%s\n' "$nic_msg" >/dev/console 2>/dev/null ||
+        printf '%s\n' "$nic_msg" >/dev/tty1 2>/dev/null || true
 
     mkdir -p /root
-    ( umask 077; printf '%s\n' "$pw" > /root/.first-boot-password ) 2>/dev/null ||
+    ( umask 077; printf '%s\n' "$nic_pw" > /root/.first-boot-password ) 2>/dev/null ||
         echo "warning: 无法写入 /root/.first-boot-password" >>"$LOGFILE"
     chmod 600 /root/.first-boot-password 2>/dev/null
 
@@ -101,10 +110,16 @@ lockdown_single_nic_password() {
 # 首访 WebUI 本来就能通。给 wan zone 开 ACCEPT 既没有实际作用, 又会在以后有人
 # 添加 wan 接口时白送一个入站放行, 所以这里不做。
 
+stage "1/7 读取构建期输入"
 # 检查配置文件pppoe-settings是否存在 该文件由build.sh动态生成
 SETTINGS_FILE="/etc/config/pppoe-settings"
 # 构建期由 workflow 塞进 /etc/config 的管理地址(仅多网口用), 读完要删
 IP_VALUE_FILE="/etc/config/custom_router_ip.txt"
+# 显式初始化: 没有拨号输入时这些变量为空, 后面的判断据此走"未启用"分支,
+# 而不是依赖未定义变量展开成空串(哪天加了 set -u 也不会炸)。
+enable_pppoe=""
+pppoe_account=""
+pppoe_password=""
 if [ ! -f "$SETTINGS_FILE" ]; then
     echo "PPPoE settings file not found. Skipping." >>$LOGFILE
 else
@@ -119,22 +134,25 @@ else
     rm -f "$SETTINGS_FILE"
 fi
 
+stage "2/7 枚举物理网口"
 # 1. 先获取所有物理接口列表
 # 目录参数只给测试用(测试建一棵假的 sysfs 树), 固件里永远走默认路径。
 # >>> list-physical-ports
 # shellcheck disable=SC2120  # 目录参数只给测试用, 固件里的调用永远不带参
 list_physical_ports() {
-    net_dir="${1:-/sys/class/net}"
-    ports=""
-    for iface in "$net_dir"/*; do
-        name=$(basename "$iface")
+    # 变量统一加 lp_ 前缀: POSIX sh 没有可靠的 local, 别和主流程的变量撞名。
+    lp_dir="${1:-/sys/class/net}"
+    lp_ports=""
+    for lp_iface in "$lp_dir"/*; do
+        lp_name=$(basename "$lp_iface")
         # 有 device 节点的才是物理口: 排除 lo、br-lan、veth、docker0 之类虚拟口
-        [ -e "$iface/device" ] || continue
-        case "$name" in
-            eth*|en*) ports="$ports $name" ;;
+        [ -e "$lp_iface/device" ] || continue
+        # eth/en 是内核默认命名; lan/wan 是部分固件改过的命名, 一并收下。
+        case "$lp_name" in
+            eth*|en*|lan*|wan*) lp_ports="$lp_ports $lp_name" ;;
         esac
     done
-    printf '%s\n' "$ports" | awk '{$1=$1};1'
+    printf '%s\n' "$lp_ports" | awk '{$1=$1};1'
 }
 # <<< list-physical-ports
 
@@ -180,6 +198,7 @@ board_name=$(cat /tmp/sysinfo/board_name 2>/dev/null || echo "unknown")
 echo "Board detected: $board_name" >>$LOGFILE
 
 # 3. 配置网络
+stage "3/7 配置网络 (count=$count)"
 if [ "$count" -gt "$MAX_PORTS" ]; then
     # 超限: 不动 network, 也不猜哪个口是 WAN。日志写清楚让用户手工配。
     echo "error: 检测到 $count 个物理网口, 超过自动映射上限 $MAX_PORTS, 跳过网口自动配置(保留镜像默认网络配置: 通常 lan=br-lan 含 eth0, wan 取决于存在哪些网口; 其余口请在 LuCI 手工指定)" >>"$LOGFILE"
@@ -195,8 +214,14 @@ elif [ "$count" -eq 1 ]; then
     uci delete network.lan.netmask
     uci delete network.lan.gateway
     uci delete network.lan.dns
+    # 单网口机器本来不该有 WAN; 但 board.d 只在 eth1 存在时才建 wan,
+    # 而 eth1 可能是 USB 网卡/虚拟口。留着一个挂错口的 wan 会让它反复 DHCP 重试,
+    # LuCI 里也会多出一个永远起不来的接口, 所以这里清掉。
+    uci -q delete network.wan
+    uci -q delete network.wan6
     uci commit network || {
         echo "error: uci commit network failed" >>$LOGFILE
+        STRUCT_FAIL=1
     }
 
     lockdown_single_nic_password ||
@@ -208,7 +233,9 @@ elif [ "$count" -gt 1 ]; then
     echo "Using last interface as WAN mapping: WAN=$wan_ifname LAN=$lan_ifnames" >>"$LOGFILE"
 
     # 多网口设备配置
-    # 配置WAN
+    # 配置WAN。
+    # 假定 WAN 段名就是 wan(镜像默认如此); 若上游改成别的段名, 这里会新建一段,
+    # 旧段会留在配置里, 由用户在 LuCI 手工清理 —— 首启阶段无法可靠猜测别名。
     uci set network.wan=interface
     uci set network.wan.device="$wan_ifname"
     uci set network.wan.proto='dhcp'
@@ -222,6 +249,7 @@ elif [ "$count" -gt 1 ]; then
     section=$(uci show network | find_brlan_section)
     if [ -z "$section" ]; then
         echo "error: cannot find device 'br-lan', LAN ports not configured" >>$LOGFILE
+        STRUCT_FAIL=1
     else
         # 删除原有ports
         uci -q delete "network.$section.ports"
@@ -273,6 +301,7 @@ elif [ "$count" -gt 1 ]; then
 
     uci commit network || {
         echo "error: uci commit network failed" >>$LOGFILE
+        STRUCT_FAIL=1
     }
 fi
 
@@ -284,14 +313,22 @@ rm -f "$IP_VALUE_FILE"
 # 管理面收回到 lan: 原来把 dropbear 的 Interface 置空、删掉 ttyd 的 interface,
 # 等于所有网口(含 WAN)都能连; 多网口时只剩防火墙一道防线, 规则一改就全开。
 # ttyd 是免密网页 shell, 暴露面最大, 这里默认关闭, 需要时用户自己在 LuCI 开启。
+stage "4/7 收拢管理面(dropbear/ttyd/banner)"
 if [ -f /etc/config/dropbear ]; then
     uci -q set dropbear.@dropbear[0].Interface='lan'
     echo "dropbear: Interface=lan" >>"$LOGFILE"
 fi
 if [ -x /etc/init.d/ttyd ]; then
-    uci -q set ttyd.@ttyd[0].interface='lan'
-    # enable 选项是 luci-app-ttyd 的开关; 连同服务自启一起关掉, 两条路都堵上
-    uci -q set ttyd.@ttyd[0].enable='0'
+    # 幂等: 已经是 interface=lan + enable=0 就不再改配置, 免得重跑脚本
+    # 把用户在 LuCI 里调过的值又按回去。
+    if [ "$(uci -q get ttyd.@ttyd[0].interface)" = "lan" ] &&
+       [ "$(uci -q get ttyd.@ttyd[0].enable)" = "0" ]; then
+        echo "ttyd: 已是 interface=lan/enable=0, 跳过改配置" >>"$LOGFILE"
+    else
+        uci -q set ttyd.@ttyd[0].interface='lan'
+        # enable 选项是 luci-app-ttyd 的开关; 连同服务自启一起关掉, 两条路都堵上
+        uci -q set ttyd.@ttyd[0].enable='0'
+    fi
     /etc/init.d/ttyd stop >/dev/null 2>&1
     /etc/init.d/ttyd disable >/dev/null 2>&1
     echo "ttyd: interface=lan, 默认关闭(需要时在 LuCI 手动开启)" >>"$LOGFILE"
@@ -321,37 +358,54 @@ fi
 #
 # 执行顺序: 60_nginx-luci-support 先跑, 99-custom.sh 后跑, 所以这里的设置
 # 会覆盖 60 里的 disable/stop。
+stage "5/7 编排 Web 服务器"
 if [ -x /etc/init.d/nginx ] && [ -x /etc/init.d/uhttpd ]; then
     echo "Configuring web servers: nginx(80/443) + uhttpd(8080/8443)" >>$LOGFILE
 
-    # uhttpd 监听端口改为 8080/8443。
-    # listen_http/listen_https 是 list 类型, 多个地址要 add_list 逐条加,
-    # 不能用 uci set 一次塞两个值(带空格的引号会被 uci 解析器当成整体)。
-    uci -q delete uhttpd.main.listen_http
-    uci -q delete uhttpd.main.listen_https
-    uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
-    uci add_list uhttpd.main.listen_http='[::]:8080'
-    uci add_list uhttpd.main.listen_https='0.0.0.0:8443'
-    uci add_list uhttpd.main.listen_https='[::]:8443'
+    # 先确认 uhttpd 的 main 段存在: 段名对不上时 add_list 会静默失败,
+    # uhttpd 仍占着 80/443, nginx 就绑不上 —— 那种情况下至少日志里说清楚。
+    if ! uci -q get uhttpd.main >/dev/null 2>&1; then
+        echo "error: /etc/config/uhttpd 缺少 main 段, uhttpd 端口未调整, 80/443 可能与 nginx 冲突" >>"$LOGFILE"
+    elif uci -q get uhttpd.main.listen_http | grep -q ':8080' &&
+         uci -q get uhttpd.main.listen_https | grep -q ':8443'; then
+        # 幂等: 已经在目标端口上就不再重写配置, 免得重跑脚本冲掉用户改过的监听。
+        echo "uhttpd 已在 8080/8443, 跳过端口配置" >>"$LOGFILE"
+    else
+        # listen_http/listen_https 是 list 类型, 多个地址要 add_list 逐条加,
+        # 不能用 uci set 一次塞两个值(带空格的引号会被 uci 解析器当成整体)。
+        uci -q delete uhttpd.main.listen_http
+        uci -q delete uhttpd.main.listen_https
+        uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
+        uci add_list uhttpd.main.listen_http='[::]:8080'
+        uci add_list uhttpd.main.listen_https='0.0.0.0:8443'
+        uci add_list uhttpd.main.listen_https='[::]:8443'
 
-    # uhttpd 不做 HTTP->HTTPS 跳转: 它已是备用入口, 且 nginx 在 80 上
-    # 自行 302 跳 HTTPS, 两者行为保持一致即可。
-    uci set uhttpd.main.redirect_https='0'
+        # uhttpd 不做 HTTP->HTTPS 跳转: 它已是备用入口, 且 nginx 在 80 上
+        # 自行 302 跳 HTTPS, 两者行为保持一致即可。
+        uci set uhttpd.main.redirect_https='0'
 
-    uci commit uhttpd
+        uci commit uhttpd
+    fi
 
     # 启动顺序: 先起 nginx 占用 80/443, 再起 uhttpd。
-    # 若顺序反了, uhttpd 会先绑上 80 导致 nginx bind 失败。
     /etc/init.d/nginx enable
     /etc/init.d/uwsgi enable
     /etc/init.d/uhttpd enable
 
-    # uhttpd 需要自签证书才能起 HTTPS(8443), 证书由 uhttpd 的 cert 段生成
+    # uhttpd 需要自签证书才能起 HTTPS(8443), 没有证书/生成器时只有 HTTP 可用。
     /etc/init.d/uhttpd start >/dev/null 2>&1
     /etc/init.d/uwsgi start >/dev/null 2>&1
     /etc/init.d/nginx start >/dev/null 2>&1
 
-    echo "Web servers configured, nginx:80/443, uhttpd:8080/8443" >>$LOGFILE
+    # 不假设 start 成功: 80/443 是主入口, 起不来必须在日志里留下错误。
+    if pgrep -f nginx >/dev/null 2>&1; then
+        echo "Web servers configured, nginx:80/443, uhttpd:8080/8443" >>$LOGFILE
+    else
+        echo "error: nginx 未启动成功, 80/443 不可用(可查 /var/log/nginx 或手动 /etc/init.d/nginx start)" >>"$LOGFILE"
+    fi
+    if ! pgrep -f uhttpd >/dev/null 2>&1; then
+        echo "warning: uhttpd 未运行, 8080/8443 备用入口不可用" >>"$LOGFILE"
+    fi
 else
     echo "nginx or uhttpd init script not found, skip web server config" >>$LOGFILE
 fi
@@ -387,25 +441,22 @@ add_packager_suffix() {
 
 add_packager_suffix /etc/openwrt_release
 
-# 若安装了dockerd 则设置docker的防火墙规则
-# 扩大docker涵盖的子网范围 '172.16.0.0/12'
-# 方便各类docker容器的端口顺利通过防火墙
-if command -v dockerd >/dev/null 2>&1; then
-    echo "检测到 Docker，正在配置防火墙规则..."
-
+# 若安装了 dockerd 则设置 docker 的防火墙规则。
+# 扩大 docker 涵盖的子网范围 '172.16.0.0/12', 方便各类 docker 容器端口通过防火墙。
+configure_docker_firewall() {
     # 删除所有名为 docker 的 zone
     uci -q delete firewall.docker
 
     # 删除所有引用 docker zone 的 forwarding。
     # 用 section 标识(@forwarding[N] 或具名段)而不是数组下标: 具名段
     # (config forwarding 'xxx') 取不到数字下标, 老写法会漏删。
-    for sek in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=forwarding$/\1/p'); do
-        src=$(uci -q get "firewall.$sek.src")
-        dest=$(uci -q get "firewall.$sek.dest")
-        echo "Checking forwarding $sek: src=$src dest=$dest"
-        if [ "$src" = "docker" ] || [ "$dest" = "docker" ]; then
-            echo "Deleting forwarding $sek"
-            uci -q delete "firewall.$sek"
+    for fw_sek in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=forwarding$/\1/p'); do
+        fw_src=$(uci -q get "firewall.$fw_sek.src")
+        fw_dest=$(uci -q get "firewall.$fw_sek.dest")
+        echo "Checking forwarding $fw_sek: src=$fw_src dest=$fw_dest"
+        if [ "$fw_src" = "docker" ] || [ "$fw_dest" = "docker" ]; then
+            echo "Deleting forwarding $fw_sek"
+            uci -q delete "firewall.$fw_sek"
         fi
     done
 
@@ -436,9 +487,26 @@ if command -v dockerd >/dev/null 2>&1; then
 
     # 提交所有改动
     uci commit firewall
+}
 
+# 幂等: docker zone 已经存在就整体跳过 —— 重跑脚本不该把用户自己加的
+# docker forwarding 清掉重建成固定三条。
+stage "6/7 Docker 防火墙"
+if command -v dockerd >/dev/null 2>&1; then
+    echo "检测到 Docker，正在配置防火墙规则..."
+    if [ "$(uci -q get firewall.docker.name)" = "docker" ]; then
+        echo "docker firewall zone 已存在, 跳过重建(保留用户自定义 forwarding)" >>"$LOGFILE"
+    else
+        configure_docker_firewall
+    fi
 else
     echo "未检测到 Docker，跳过防火墙配置。"
 fi
 
-exit 0
+stage "7/7 收尾"
+if [ "$STRUCT_FAIL" -ne 0 ]; then
+    # 非 0 退出 = 脚本不会被 boot 删除, 下次启动会重试。只在结构性失败时这么做:
+    # 环境差异(没装 ttyd/nginx、uhttpd 段异常)重试也没用, 还会冲掉用户改动。
+    echo "error: 存在结构性配置失败, 保留脚本待下次启动重试" >>"$LOGFILE"
+fi
+exit "$STRUCT_FAIL"

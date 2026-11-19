@@ -450,11 +450,13 @@ if [ -n "$gen_ports_src" ]; then
 
   # 虚拟口必须排除: gen 目录里只给 eth0/enp3s0 建 device 节点
   mkdir -p "$fake_net/mix/eth0/device" "$fake_net/mix/enp3s0/device"
+  # lan*/wan* 是部分固件改过的物理口命名, 也要收; 但它们同样得有 device 节点
+  mkdir -p "$fake_net/mix/lan1/device" "$fake_net/mix/wan0/device"
   mkdir -p "$fake_net/mix/lo" "$fake_net/mix/docker0" "$fake_net/mix/br-lan" "$fake_net/mix/veth0"
   mix=$(list_physical_ports "$fake_net/mix")
   # 顺序就是 glob 的字典序(enp3s0 在 eth0 前), 这里只比集合
   mix_sorted=$(printf "%s\n" $mix | sort | tr "\n" " ")
-  if [ "$mix_sorted" = "enp3s0 eth0 " ]; then
+  if [ "$mix_sorted" = "enp3s0 eth0 lan1 wan0 " ]; then
     ok "虚拟口(lo/docker0/br-lan/veth)被排除"
   else
     bad "虚拟口混进了物理口列表: [$mix]"
@@ -564,6 +566,85 @@ if [ -n "$suffix_src" ]; then
   rm -f "$rel_tmp"
 else
   bad "抽不到 add_packager_suffix, 无法做幂等测试"
+fi
+
+# ================================================================
+# 6g. 结构性失败传播 / 幂等护栏 / 日志阶段 / 变量卫生
+# ================================================================
+# 结构性失败(br-lan 找不到、network 写盘失败)必须返回非 0, 让 uci-defaults
+# 保留脚本下次重试; 环境差异类(没装 nginx/ttyd)保持 0, 否则重试会冲掉用户改动。
+if grep -q '^STRUCT_FAIL=0$' "$CUSTOM" && grep -q 'exit "\$STRUCT_FAIL"' "$CUSTOM"; then
+  ok "结构性失败用 STRUCT_FAIL 汇总并作为退出码"
+else
+  bad "没有 STRUCT_FAIL 汇总/退出, 失败会被 exit 0 吞掉"
+fi
+
+if awk '/cannot find device .br-lan/{found=1} found && /STRUCT_FAIL=1/{ok=1} END{exit !ok}' "$CUSTOM"; then
+  ok "找不到 br-lan 会置结构性失败"
+else
+  bad "找不到 br-lan 时没有置位, LAN 半配置会被静默吞掉"
+fi
+
+net_commit_guard=$(grep -A2 'uci commit network || {' "$CUSTOM" | grep -c 'STRUCT_FAIL=1')
+if [ "$net_commit_guard" -ge 2 ]; then
+  ok "两条 network 提交失败路径都置结构性失败($net_commit_guard 处)"
+else
+  bad "network 提交失败没有置位(只有 $net_commit_guard 处)"
+fi
+
+if grep -q 'pgrep -f nginx' "$CUSTOM"; then
+  ok "nginx 启动后校验进程, 不再无条件写成功"
+else
+  bad "Web 段仍无条件声称配置成功"
+fi
+if grep -q 'uci -q get uhttpd.main >/dev/null' "$CUSTOM"; then
+  ok "uhttpd.main 段缺失时有护栏"
+else
+  bad "没有检查 uhttpd.main 段, add_list 会静默失败"
+fi
+
+# 幂等护栏: 重跑不该把用户改过的东西按回去。
+if grep -q 'uhttpd 已在 8080/8443, 跳过端口配置' "$CUSTOM"; then
+  ok "uhttpd 端口已达标时跳过重写"
+else
+  bad "uhttpd 端口每次都被重写, 重跑会冲掉用户自定义"
+fi
+if grep -q '已是 interface=lan/enable=0' "$CUSTOM"; then
+  ok "ttyd 已是目标状态时跳过改配置"
+else
+  bad "ttyd 配置每次都被重写"
+fi
+if grep -q 'docker firewall zone 已存在, 跳过重建' "$CUSTOM"; then
+  ok "docker zone 已存在时跳过重建(保留用户 forwarding)"
+else
+  bad "docker forwarding 每次被清空重建"
+fi
+
+# 单网口分支要清掉历史遗留的 wan/wan6(比如 eth1 是 USB 网卡时 board.d 会建 wan)。
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f && /uci -q delete network.wan$/{ok=1} END{exit !ok}' "$CUSTOM"; then
+  ok "单网口分支清理 wan/wan6"
+else
+  bad "单网口分支没有清理 wan, 挂错口的 WAN 会一直 DHCP 重试"
+fi
+
+# 变量卫生: 没有拨号输入时 pppoe 变量必须显式初始化, 不靠空串展开。
+if grep -q '^enable_pppoe=""$' "$CUSTOM"; then
+  ok "pppoe 变量显式初始化"
+else
+  bad "pppoe 变量未初始化, 依赖未定义变量展开成空串"
+fi
+if grep -q 'lp_ports=' "$CUSTOM" && ! grep -q '^    ports=""$' "$CUSTOM"; then
+  ok "枚举函数用 lp_ 前缀变量(不与主流程撞名)"
+else
+  bad "枚举函数仍占用通用变量名 ports"
+fi
+
+# 日志阶段: 首启日志要能看出卡在哪一步。
+stages=$(grep -c '^stage "[0-9]/7' "$CUSTOM")
+if [ "$stages" -ge 7 ] && grep -q '^stage() {' "$CUSTOM"; then
+  ok "日志有 7 个带时间戳的阶段标记"
+else
+  bad "阶段标记只有 $stages 个, 排查时看不出卡在哪"
 fi
 
 # ================================================================
