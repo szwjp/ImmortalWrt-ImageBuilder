@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate inputs
         # 所有输入一律经 env: 传入, run: 脚本里不出现 ${{ inputs.* }}。
@@ -307,7 +307,7 @@ jobs:
       # ISO 构建脚本已 vendored 进本仓库的 iso/ 目录, 不再 clone 第三方仓库。
       # 需要 checkout 才能拿到 iso/ 下的脚本。
       - name: Checkout code
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download firmware artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
