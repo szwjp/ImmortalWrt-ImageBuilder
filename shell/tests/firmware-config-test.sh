@@ -289,6 +289,101 @@ else
 fi
 
 # ================================================================
+# 6d. 单网口首启: 随机 root 密码
+# ================================================================
+# 单网口 DHCP 时设备就是上游局域网的一员, root 无密码等于管理权公开。
+# 这里既断言「接上了」, 也断言实现本身没走样 —— 后者用行为测试: 把生成
+# 函数按标记整段抽出来真跑, 而不是只 grep 源码字符串。
+if grep -q '^# >>> first-boot-password' "$CUSTOM" && grep -q '^# <<< first-boot-password' "$CUSTOM"; then
+  ok "随机密码函数有抽取标记(行为测试依赖它)"
+else
+  bad "随机密码函数的标记被删了, 行为测试会失效"
+fi
+
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f && /lockdown_single_nic_password/' "$CUSTOM" | grep -q .; then
+  ok "单网口分支调用了随机密码设置"
+else
+  bad "单网口分支没有设置 root 密码, DHCP 接入上游网段就是空密码"
+fi
+
+# 已有密码必须跳过: 脚本可能被手动重跑, 不能每次都换掉用户的密码。
+if grep -q 'root 已有密码' "$CUSTOM"; then
+  ok "root 已有密码时跳过(重跑不改密码)"
+else
+  bad "缺少「已有密码就跳过」的判断, 重跑会把用户密码冲掉"
+fi
+
+# 密码是临时凭据, 绝不能进 /tmp/99-custom.log(会被回传给排查者)。
+if grep 'LOGFILE' "$CUSTOM" | grep -q '\$pw'; then
+  bad "随机密码被写进了日志"
+else
+  ok "随机密码不进日志"
+fi
+
+# 取密码的通道: 控制台(主) + /dev/tty1(兜底); 副本必须 600。
+if grep -q '>/dev/console' "$CUSTOM" && grep -q '>/dev/tty1' "$CUSTOM"; then
+  ok "密码输出到本机控制台(带 tty1 兜底)"
+else
+  bad "密码没有输出到控制台, 单网口机器将无法登录"
+fi
+if grep -q 'chmod 600 /root/.first-boot-password' "$CUSTOM"; then
+  ok "密码副本权限 600"
+else
+  bad "密码副本没有收紧权限"
+fi
+
+# banner 在 SSH 登录前就会显示, 只能指向密码位置, 不能放密码本身。
+if awk '/单网口首次启动已生成随机 root 密码/{f=1} f && /\$pw/{print; exit}' "$CUSTOM" | grep -q .; then
+  bad "banner 段里出现了密码变量本身, 未认证的人就能看到密码"
+else
+  ok "banner 不含密码本身"
+fi
+
+if grep -q '/root/.first-boot-password' "$REPO_ROOT/README.md" 2>/dev/null; then
+  ok "README 说明了密码副本位置"
+else
+  bad "README 没写密码从哪里取, 用户会卡在登录页"
+fi
+
+# --- 行为测试: 真跑生成函数 ---
+gen_src=$(sed -n '/^# >>> first-boot-password/,/^# <<< first-boot-password/p' "$CUSTOM")
+if [ -n "$gen_src" ]; then
+  eval "$gen_src"
+  bad_fmt=""
+  ambiguous=""
+  tmp_pw=$(mktemp)
+  i=0
+  while [ "$i" -lt 20 ]; do
+    p=$(gen_first_boot_password)
+    printf '%s\n' "$p" >>"$tmp_pw"
+    if [ -z "$p" ]; then bad_fmt="空密码"; break; fi
+    if [ "${#p}" -ne 16 ]; then bad_fmt="长度 ${#p}"; fi
+    printf '%s' "$p" | grep -Eq '^[A-HJ-NP-Za-km-np-z2-9]{16}$' || bad_fmt="字符集越界: $p"
+    printf '%s' "$p" | grep -q '[0O1lIo]' && ambiguous="$p"
+    i=$((i + 1))
+  done
+  uniq_n=$(sort -u "$tmp_pw" | grep -c .)
+  rm -f "$tmp_pw"
+  if [ -z "$bad_fmt" ]; then
+    ok "生成函数产出 16 位、字符集内、无易混字符的密码"
+  else
+    bad "生成函数产出异常($bad_fmt)"
+  fi
+  if [ -z "$ambiguous" ]; then
+    ok "生成的密码不含 0/O/1/l/I/o"
+  else
+    bad "生成的密码含易混字符: $ambiguous"
+  fi
+  if [ "$uniq_n" -ge 19 ]; then
+    ok "20 次生成几乎不重复(唯一 $uniq_n 个)"
+  else
+    bad "随机性不足: 20 次只有 $uniq_n 个不同值"
+  fi
+else
+  bad "抽不到生成函数, 无法做行为测试"
+fi
+
+# ================================================================
 # 7. 若环境里有 uci, 跑真实的凭据往返测试
 # ================================================================
 # CI 的 ubuntu runner 没有 uci, 这一段会自动跳过; 本机或 OpenWrt 环境下

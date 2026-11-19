@@ -17,6 +17,83 @@ else
     echo "warning: $IP_LIB 不存在, 管理地址将退回默认值" >>"$LOGFILE"
 fi
 
+# ============ 单网口首启: 随机 root 密码 ============
+# 单网口设备(DHCP 模式)的唯一网口属于 lan zone, 设备会成为上游局域网的一员,
+# 同网段任何主机都能直连 22/443。固件默认 root 无密码: 在多网口设备上这只
+# 暴露在自有 LAN 内, 在单网口上等于把管理权公开给上游网络。所以单网口首启
+# 生成一次性随机密码, 打印到本机控制台, 并落一份仅 root 可读的副本。
+# 多网口不动: LAN 是独立网段, 保持开箱即用。
+#
+# 该函数被 shell/tests/firmware-config-test.sh 按标记整段抽出做行为测试,
+# 标记行本身别改。
+# >>> first-boot-password
+gen_first_boot_password() {
+    # 去掉 0/O/1/l/I/o 等易混字符: 这是要照着控制台手敲的密码。
+    # LC_ALL=C 保证不同 locale 下字符集一致。
+    LC_ALL=C tr -dc 'A-HJ-NP-Za-km-np-z2-9' < /dev/urandom 2>/dev/null | head -c 16
+}
+# <<< first-boot-password
+
+lockdown_single_nic_password() {
+    # 已经有密码就不动: 脚本可能被手动重跑, 不能每次启动都换密码。
+    root_hash=$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)
+    if [ -n "$root_hash" ]; then
+        echo "single-nic: root 已有密码, 不生成随机密码" >>"$LOGFILE"
+        return 0
+    fi
+
+    pw=$(gen_first_boot_password)
+    # 生成失败宁可不设, 也不要写出空密码; 失败路径留在日志里。
+    if [ "${#pw}" -ne 16 ]; then
+        echo "error: 随机密码生成失败(长度 ${#pw})" >>"$LOGFILE"
+        return 1
+    fi
+
+    # busybox passwd 从标准输入连读两遍; 不用 echo -e, 免得密码被当转义序列处理。
+    if ! printf '%s\n%s\n' "$pw" "$pw" | passwd root >/dev/null 2>&1; then
+        echo "error: passwd 设置 root 密码失败" >>"$LOGFILE"
+        return 1
+    fi
+    # passwd 返回 0 不等于真写进去了(比如 shadow 只读), 回读确认。
+    if [ -z "$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)" ]; then
+        echo "error: passwd 返回成功但 /etc/shadow 里 root 仍无密码" >>"$LOGFILE"
+        return 1
+    fi
+    # 日志里绝不出现密码本身: /tmp/99-custom.log 会被回传给排查者。
+    echo "single-nic: 已生成随机 root 密码(值不写日志)" >>"$LOGFILE"
+
+    # 控制台是取密码的唯一通道。x86 上 /dev/console 通常是 tty0(接显示器),
+    # 服务器/虚拟机是串口; 写不进去时退回 /dev/tty1。
+    msg="
+============================================================
+ 单网口首次启动: 已生成随机 root 密码
+   密码: $pw
+ 登录: http://<本机从上游 DHCP 得到的地址>/   (LuCI)
+       ssh root@<同一地址>
+ 密码副本: /root/.first-boot-password (仅 root 可读)
+ 登录后请立即在 [系统 - 管理权] 修改密码, 并删除该文件。
+============================================================"
+    printf '%s\n' "$msg" >/dev/console 2>/dev/null ||
+        printf '%s\n' "$msg" >/dev/tty1 2>/dev/null || true
+
+    mkdir -p /root
+    ( umask 077; printf '%s\n' "$pw" > /root/.first-boot-password ) 2>/dev/null ||
+        echo "warning: 无法写入 /root/.first-boot-password" >>"$LOGFILE"
+    chmod 600 /root/.first-boot-password 2>/dev/null
+
+    # banner 只写"密码在哪", 不写密码: 它是 dropbear 登录前的提示,
+    # 未认证的人也能看到。
+    if ! grep -q '单网口首次启动已生成随机 root 密码' /etc/banner 2>/dev/null; then
+        {
+            echo ""
+            echo "*** 单网口首次启动已生成随机 root 密码。"
+            echo "*** 密码见设备本机控制台输出, 或登录后 cat /root/.first-boot-password。"
+            echo ""
+        } >> /etc/banner 2>/dev/null
+    fi
+    return 0
+}
+
 # 刻意不改 firewall 的 zone 入站策略。
 #
 # 单网口设备的唯一网口在默认配置里属于 lan zone: /etc/board.d/99-default_network
@@ -67,8 +144,11 @@ echo "Board detected: $board_name" >>$LOGFILE
 # 3. 配置网络
 if [ "$count" -eq 1 ]; then
     # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
-    # 但这也意味着设备会直接接入上游局域网: root 默认无密码, 管理面就在那一侧。
-    echo "warning: 单网口 DHCP 模式, 设备将接入上游局域网(root 无密码时勿接入不可信网络)" >>"$LOGFILE"
+    # 但这也意味着设备会直接接入上游局域网: 管理面就在那一侧, 所以下面必须
+    # 先把 root 密码设上, 不能让"默认无密码"的状态活在别人的网段里。
+    # 顺序也重要: uci-defaults 在 S10boot 阶段执行, 早于 S20network 起网络,
+    # 所以密码先于网口可用就位。
+    echo "single-nic: DHCP 模式, 设备将接入上游局域网, 随后生成随机 root 密码" >>"$LOGFILE"
     uci set network.lan.proto='dhcp'
     uci delete network.lan.ipaddr
     uci delete network.lan.netmask
@@ -77,6 +157,9 @@ if [ "$count" -eq 1 ]; then
     uci commit network || {
         echo "error: uci commit network failed" >>$LOGFILE
     }
+
+    lockdown_single_nic_password ||
+        echo "warning: 随机密码设置失败, root 仍无密码, 本机请勿接入不可信网络" >>"$LOGFILE"
 elif [ "$count" -gt 1 ]; then
     # 默认最后一个接口为WAN，其余为LAN
     wan_ifname=$(echo "$ifnames" | awk -v total="$count" '{print $total}')
