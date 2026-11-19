@@ -166,6 +166,17 @@ find_brlan_section() {
 }
 # <<< brlan-section
 
+# 是否要自动补 wan6: 只在「镜像里还没有 wan6」且「WAN 不是 PPPoE」时补。
+# wan6 是平台/LuCI 会自己维护的接口(PPPoE 下它的 device 应指向 pppoe-wan),
+# 无条件 uci set 会覆盖用户已配好的 IPv6; 启用 PPPoE 时硬塞一个指向物理口的
+# DHCPv6 客户端, 只会多出一个永远起不来的接口(实测在 LuCI 里就是重复的 IPv6 条目)。
+# >>> wan6-autoconfig
+wants_wan6() {
+    # $1: 已有 wan6 则为 1; $2: enable_pppoe 的值
+    [ "$1" != "1" ] && [ "$2" != "yes" ]
+}
+# <<< wan6-autoconfig
+
 ifnames=$(list_physical_ports)
 count=$(echo "$ifnames" | wc -w)
 echo "Detected physical interfaces: $ifnames" >>$LOGFILE
@@ -240,10 +251,20 @@ elif [ "$count" -gt 1 ]; then
     uci set network.wan.device="$wan_ifname"
     uci set network.wan.proto='dhcp'
 
-    # 配置WAN6
-    uci set network.wan6=interface
-    uci set network.wan6.device="$wan_ifname"
-    uci set network.wan6.proto='dhcpv6'
+    # 配置WAN6: 已有配置不动, 启用 PPPoE 时也不补(理由见 wants_wan6 的注释)
+    if uci -q get network.wan6 >/dev/null 2>&1; then
+        wan6_exists=1
+    else
+        wan6_exists=0
+    fi
+    if wants_wan6 "$wan6_exists" "$enable_pppoe"; then
+        uci set network.wan6=interface
+        uci set network.wan6.device="$wan_ifname"
+        uci set network.wan6.proto='dhcpv6'
+        echo "wan6: 新建 DHCPv6 客户端($wan_ifname)" >>"$LOGFILE"
+    else
+        echo "wan6: 已有配置或启用 PPPoE, 不自动创建(IPv6 交给平台/LuCI 维护)" >>"$LOGFILE"
+    fi
 
     # 查找 br-lan 设备 section(按段名值匹配, 具名段也能找到)
     section=$(uci show network | find_brlan_section)
@@ -293,7 +314,8 @@ elif [ "$count" -gt 1 ]; then
         uci set network.wan.password="$pppoe_password"
         uci set network.wan.peerdns='1'
         uci set network.wan.auto='1'
-        uci set network.wan6.proto='none'
+        # 不再把 wan6 置 none: PPPoE 链路本身承载 IPv6, 平台/LuCI 会把 wan6 的
+        # device 指向 pppoe-wan; 这里写死 none 会把 IPv6 关掉。
         echo "PPPoE config done." >>$LOGFILE
     else
         echo "PPPoE not enabled." >>$LOGFILE

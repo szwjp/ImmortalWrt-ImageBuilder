@@ -648,6 +648,43 @@ else
 fi
 
 # ================================================================
+# 6h. wan6: 不覆盖已有配置, PPPoE 下不硬塞
+# ================================================================
+# 实机上出现过 IPv6 接口重复(LuCI 里一个 wan_6 起不来、一个 wan6 正常)。
+# 根因是脚本无条件写 network.wan6=device+dhcpv6, 再在 PPPoE 分支置 none:
+# 既覆盖平台/LuCI 已配好的 IPv6, 又在 PPPoE 下留下一个永不 up 的重复条目。
+wan6_sets=$(grep -c "uci set network.wan6=interface" "$CUSTOM")
+if [ "$wan6_sets" -eq 1 ] && grep -q 'if wants_wan6 "\$wan6_exists" "\$enable_pppoe"' "$CUSTOM"; then
+  ok "wan6 只在 wants_wan6 判定为真时才创建"
+else
+  bad "wan6 仍是无条件创建($wan6_sets 处), 会覆盖已有 IPv6 配置"
+fi
+
+if grep -q "network.wan6.proto='none'" "$CUSTOM"; then
+  bad "PPPoE 分支仍把 wan6 置 none, 会把 PPPoE 上的 IPv6 关掉"
+else
+  ok "PPPoE 下不再把 wan6 置 none"
+fi
+
+if grep -q 'uci -q get network.wan6 >/dev/null' "$CUSTOM"; then
+  ok "创建前先探测 wan6 是否已存在"
+else
+  bad "没有探测已有 wan6, 会重复配置"
+fi
+
+wan6_src=$(sed -n '/^# >>> wan6-autoconfig/,/^# <<< wan6-autoconfig/p' "$CUSTOM")
+if [ -n "$wan6_src" ]; then
+  eval "$wan6_src"
+  if wants_wan6 0 no && ! wants_wan6 1 no && ! wants_wan6 0 yes && ! wants_wan6 1 yes; then
+    ok "wants_wan6: 仅『无 wan6 且非 PPPoE』为真"
+  else
+    bad "wants_wan6 判定矩阵不对"
+  fi
+else
+  bad "抽不到 wants_wan6, 无法做行为测试"
+fi
+
+# ================================================================
 # 7. 若环境里有 uci, 跑真实的凭据往返测试
 # ================================================================
 # CI 的 ubuntu runner 没有 uci, 这一段会自动跳过; 本机或 OpenWrt 环境下
