@@ -38,6 +38,13 @@ uci_escape_dq() {
 
 echo "pppoe-settings written (enable_pppoe=${ENABLE_PPPOE}, account=${PPPOE_ACCOUNT:+已设置})"
 
+# 管理地址校验只有一份实现: 把 shell/validate-ip.sh 拷进固件,
+# 首启脚本 source /usr/lib/imm/validate-ip.sh。不要在 99-custom.sh 里再写正则。
+mkdir -p /home/build/immortalwrt/files/usr/lib/imm
+cp /home/build/immortalwrt/shell/validate-ip.sh /home/build/immortalwrt/files/usr/lib/imm/validate-ip.sh
+chmod 0644 /home/build/immortalwrt/files/usr/lib/imm/validate-ip.sh
+echo "validate-ip.sh -> files/usr/lib/imm/"
+
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
 
 # 包清单 = 核心集 + 排除项。官方 LuCI 应用的包名已直接写在

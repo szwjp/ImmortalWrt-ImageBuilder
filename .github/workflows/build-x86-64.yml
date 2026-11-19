@@ -71,40 +71,50 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Validate inputs
+        # 所有输入一律经 env: 传入, run: 脚本里不出现 ${{ inputs.* }}。
+        # 表达式替换发生在 shell 解析之前: 内联时, 输入里的引号/换行/分号/
+        # $() 会直接改写脚本文本, 后面的正则校验已经晚了。
+        env:
+          LUCI_VERSION: ${{ inputs.luci_version }}
+          CUSTOM_ROUTER_IP: ${{ inputs.custom_router_ip }}
+          ENABLE_PPPOE: ${{ inputs.enable_pppoe }}
+          PPPOE_ACCOUNT: ${{ inputs.pppoe_account }}
+          PPPOE_PASSWORD: ${{ inputs.pppoe_password }}
+          PROFILE: ${{ inputs.profile }}
         run: |
-          luci_version="${{ inputs.luci_version }}"
-          case "$luci_version" in
-            25.12.*) ;;
+          set -euo pipefail
+          case "$LUCI_VERSION" in
+            25.12.0|25.12.1|25.12.2) ;;
             *)
-              echo "::error::只支持 25.12.x, 当前: $luci_version"
+              echo "::error::只支持 25.12.0 / 25.12.1 / 25.12.2, 当前: $LUCI_VERSION"
               exit 1
               ;;
           esac
-          custom_router_ip="${{ inputs.custom_router_ip }}"
-          # 逐段校验 0-255, 与 99-custom.sh 里的正则保持一致(两处必须同步)。
-          # 只校验 "四段数字" 是不够的: 999.999.999.999 也能过, 写进
-          # network.lan.ipaddr 后 netifd 无法绑定, 管理地址失联。
-          if ! [[ "$custom_router_ip" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]]; then
-            echo "::error::路由器管理地址格式非法: $custom_router_ip"
+
+          # 管理地址规则只有一份(shell/validate-ip.sh), 固件首启脚本也 source 它。
+          # 不仅查四段 0-255, 还要求是 /24 内的可用主机地址。
+          if ! sh shell/validate-ip.sh "$CUSTOM_ROUTER_IP"; then
+            echo "::error::路由器管理地址非法: $CUSTOM_ROUTER_IP"
             exit 1
           fi
-          if [[ "${{ inputs.enable_pppoe }}" == "yes" ]]; then
-            if [[ -z "${{ inputs.pppoe_account }}" || -z "${{ inputs.pppoe_password }}" ]]; then
+
+          if [ "$ENABLE_PPPOE" = "yes" ]; then
+            if [ -z "$PPPOE_ACCOUNT" ] || [ -z "$PPPOE_PASSWORD" ]; then
               echo "Error: PPPoE account and password must be provided when PPPoE is enabled!"
               exit 1
             fi
           fi
+
           # 固件大小必须是正整数(单位 MB)。原先是自由文本, 传非数字会让
           # ROOTFS_PARTSIZE 变成无效值, 构建产物大小与预期不符。
-          profile="${{ inputs.profile }}"
-          if ! [[ "$profile" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::固件大小必须是正整数(MB), 当前: $profile"
+          if ! [[ "$PROFILE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::固件大小必须是正整数(MB), 当前: $PROFILE"
             exit 1
           fi
           # 下限: 32MB 内核分区 + 核心包集, 低于 256MB 时 rootfs 放不下,
           # 会在 gen_image_generic.sh 阶段失败(报错点深且不直观)。
-          if [ "$profile" -lt 256 ]; then
-            echo "::error::固件大小至少 256MB, 当前: $profile"
+          if [ "$PROFILE" -lt 256 ]; then
+            echo "::error::固件大小至少 256MB, 当前: $PROFILE"
             exit 1
           fi
 
@@ -115,22 +125,28 @@ jobs:
           sh shell/tests/run-all.sh
 
       - name: Save Custom Router IP
+        env:
+          CUSTOM_ROUTER_IP: ${{ inputs.custom_router_ip }}
         run: |
-          mkdir -p "${{ github.workspace }}/custom"
-          echo "${{ inputs.custom_router_ip }}" > "${{ github.workspace }}/custom/custom_router_ip.txt"
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/custom"
+          printf '%s\n' "$CUSTOM_ROUTER_IP" > "$GITHUB_WORKSPACE/custom/custom_router_ip.txt"
 
       # 镜像按 digest 钉死: tag 会被上游重新推送, digest 不会。ISO 链路里
       # debian:buster 已经是这么钉的, 这里保持一致; 否则同一份 workflow 在不同
       # 时间跑出来的固件可能来自不同的 ImageBuilder 内容。
       - name: Resolve ImageBuilder image digest
         id: ib
+        env:
+          LUCI_VERSION: ${{ inputs.luci_version }}
         run: |
-          case "${{ inputs.luci_version }}" in
+          set -euo pipefail
+          case "$LUCI_VERSION" in
             25.12.0) digest="sha256:5ef244d7d795f53ddc7a11cdefaf0c264336d7f3dedc23305c97cd65dd579f6c" ;;
             25.12.1) digest="sha256:600dbc0bb7c0b0ca6d6b3b783061599bb93e19e220e416ab21911c6d15dc7049" ;;
             25.12.2) digest="sha256:7ea93e502bfe8b09f3a0d8f8b7d3d244ecc0fbcd5207cf264abf79f5ef9b925e" ;;
             *)
-              echo "::error::没有为 ${{ inputs.luci_version }} 钉 ImageBuilder digest, 请先补 digest 映射"
+              echo "::error::没有为 $LUCI_VERSION 钉 ImageBuilder digest, 请先补 digest 映射"
               exit 1
               ;;
           esac
@@ -169,23 +185,29 @@ jobs:
             "immortalwrt/imagebuilder@${{ steps.ib.outputs.digest }}" /bin/bash /home/build/immortalwrt/build.sh
 
       - name: Create info
+        env:
+          CUSTOM_ROUTER_IP: ${{ inputs.custom_router_ip }}
+          LUCI_VERSION: ${{ inputs.luci_version }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
         run: |
-          cat > ${{ github.workspace }}/router-info.md <<EOF
-          ## 📡 路由器后台信息
+          set -euo pipefail
+          info="$GITHUB_WORKSPACE/router-info.md"
+          {
+            echo "## 📡 路由器后台信息"
+            echo ""
+            printf -- '- 🏠 **后台地址**: %s\n' "$CUSTOM_ROUTER_IP"
+            echo "- 👤 **用户名**: root"
+            echo "- 🔑 **密码**: 无"
+            printf -- '- 📦 **版本**: %s\n' "$LUCI_VERSION"
+          } > "$info"
 
-          - 🏠 **后台地址**: ${{ inputs.custom_router_ip }}
-          - 👤 **用户名**: root
-          - 🔑 **密码**: 无
-          - 📦 **版本**: ${{ inputs.luci_version }}
-          EOF
-
-          if [ "${{ inputs.include_docker }}" == "yes" ]; then
-            echo -e "\n#### 默认带docker" >> ${{ github.workspace }}/router-info.md
+          if [ "$INCLUDE_DOCKER" = "yes" ]; then
+            printf '\n#### 默认带docker\n' >> "$info"
           else
-            echo -e "\n#### 不带docker" >> ${{ github.workspace }}/router-info.md
+            printf '\n#### 不带docker\n' >> "$info"
           fi
 
-          cat >> ${{ github.workspace }}/router-info.md <<'EOF'
+          cat >> "$info" <<'EOF'
 
           #### 附件校验
 

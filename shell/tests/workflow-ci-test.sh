@@ -130,7 +130,7 @@ fi
 # ================================================================
 # 7. profile 输入的下限: 太小会在打包阶段才失败
 # ================================================================
-if grep -qF 'profile" -lt 256' "$WORKFLOW"; then
+if grep -qF 'PROFILE" -lt 256' "$WORKFLOW"; then
   ok "profile 有下限校验"
 else
   bad "profile 没有下限校验, 传 1MB 会在 deep 阶段才失败"
@@ -170,6 +170,44 @@ for key in LUCI_VERSION PROFILE INCLUDE_DOCKER ENABLE_PPPOE PPPOE_ACCOUNT PPPOE_
     bad "build.sh 没有使用 $key, workflow 传了也白传"
   fi
 done
+
+# ================================================================
+# 11. 输入注入: run: 里不得出现 ${{ inputs.* }}, 必须经 env: 传入
+# ================================================================
+# 表达式替换发生在 shell 解析之前。输入若内联进 run:, 引号/分号/换行/$()
+# 会直接改写脚本文本, 事后的正则校验已经晚了。这里把每个 run: 块抽出来查。
+run_bodies=$(awk '
+  /^[[:space:]]*run:[[:space:]]*\|/ {
+    match($0, /^[[:space:]]*/); ind=RLENGTH; inrun=1; next
+  }
+  inrun && /^[[:space:]]*$/ { next }
+  inrun {
+    match($0, /^[[:space:]]*/)
+    if (RLENGTH <= ind) { inrun=0; next }
+    print
+  }
+' "$WORKFLOW")
+
+if printf '%s\n' "$run_bodies" | grep -qE '\$\{\{[[:space:]]*inputs\.'; then
+  bad 'run: 脚本里仍内联 ${{ inputs.* }}, 输入可改写脚本结构'
+else
+  ok 'run: 脚本里没有内联 ${{ inputs.* }}(输入只经 env 传入)'
+fi
+
+if grep -qF 'sh shell/validate-ip.sh "$CUSTOM_ROUTER_IP"' "$WORKFLOW"; then
+  ok "管理地址校验走共享脚本 shell/validate-ip.sh"
+else
+  bad "管理地址校验没有走 shell/validate-ip.sh"
+fi
+
+# 版本 allowlist 必须与 digest 映射一致, 否则会出现"校验放行但取不到 digest"
+choice_versions=$(sed -n 's/^          - \(25\.12\.[0-9]*\)$/\1/p' "$WORKFLOW" | sort)
+digest_versions=$(sed -n 's/^            \(25\.12\.[0-9]*\)) digest=.*/\1/p' "$WORKFLOW" | sort)
+if [ -n "$choice_versions" ] && [ "$choice_versions" = "$digest_versions" ]; then
+  ok "版本 allowlist 与 digest 映射一致"
+else
+  bad "版本 allowlist 与 digest 映射不一致(choice 放行的版本必须有 digest)"
+fi
 
 echo
 echo "workflow-ci-test: 通过 $pass, 失败 $fail"

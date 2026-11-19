@@ -4,6 +4,9 @@
 iso/imm/
 iso/output/
 
+# build.sh 从 shell/validate-ip.sh 拷进固件的副本
+files/usr/lib/imm/
+
 # 本地构建产物（跑 x86-64/build.sh 或 iso/autobuild.sh 之后会出现）。
 # 注意 custom/ 里会有 build.sh 生成的 pppoe-settings（含明文密码），千万别提交。
 bin/

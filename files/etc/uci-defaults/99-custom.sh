@@ -6,6 +6,16 @@
 LOGFILE="/tmp/99-custom.log"
 echo "Starting 99-custom.sh at $(date)" >>"$LOGFILE"
 
+# 管理地址校验的唯一实现: 构建时由 build.sh 从 shell/validate-ip.sh 拷到
+# /usr/lib/imm/validate-ip.sh。本脚本只 source, 不再内联正则 —— 以前
+# workflow 与这里各写一份, 规则一改就漂移。
+IP_LIB="/usr/lib/imm/validate-ip.sh"
+if [ -r "$IP_LIB" ]; then
+    . "$IP_LIB"
+else
+    echo "warning: $IP_LIB 不存在, 管理地址将退回默认值" >>"$LOGFILE"
+fi
+
 # 刻意不改 firewall 的 zone 入站策略。
 #
 # 单网口设备的唯一网口在默认配置里属于 lan zone: /etc/board.d/99-default_network
@@ -56,6 +66,8 @@ echo "Board detected: $board_name" >>$LOGFILE
 # 3. 配置网络
 if [ "$count" -eq 1 ]; then
     # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
+    # 但这也意味着设备会直接接入上游局域网: root 默认无密码, 管理面就在那一侧。
+    echo "warning: 单网口 DHCP 模式, 设备将接入上游局域网(root 无密码时勿接入不可信网络)" >>"$LOGFILE"
     uci set network.lan.proto='dhcp'
     uci delete network.lan.ipaddr
     uci delete network.lan.netmask
@@ -103,10 +115,9 @@ elif [ "$count" -gt 1 ]; then
         # 设置路由器管理后台地址
         if [ -f "$IP_VALUE_FILE" ]; then
             CUSTOM_IP=$(cat "$IP_VALUE_FILE")
-            # 逐段校验 0-255。只用 ^([0-9]{1,3}\.){3}[0-9]{1,3}$ 是不够的:
-            # 999.999.999.999 也能通过, 写进 network.lan.ipaddr 后 netifd
-            # 无法绑定, 管理地址就失联了。这里每段限定 0-255。
-            if echo "$CUSTOM_IP" | grep -Eq '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'; then
+            # 规则在 /usr/lib/imm/validate-ip.sh: 除了每段 0-255, 还拒绝
+            # 0.0.0.0、网络/广播地址(.0/.255)、回环、组播、169.254/16。
+            if ip_is_usable "$CUSTOM_IP" 2>/dev/null; then
                 # 用户在UI上设置的路由器后台管理地址
                 uci set network.lan.ipaddr="$CUSTOM_IP"
                 echo "custom router ip is $CUSTOM_IP" >> $LOGFILE
@@ -145,11 +156,37 @@ fi
 # 多一个非 UCI 文件。注意必须在上面读取之后。
 rm -f "$IP_VALUE_FILE"
 
-# 设置所有网口可访问网页终端
-uci -q delete ttyd.@ttyd[0].interface
+# 管理面收回到 lan: 原来把 dropbear 的 Interface 置空、删掉 ttyd 的 interface,
+# 等于所有网口(含 WAN)都能连; 多网口时只剩防火墙一道防线, 规则一改就全开。
+# ttyd 是免密网页 shell, 暴露面最大, 这里默认关闭, 需要时用户自己在 LuCI 开启。
+if [ -f /etc/config/dropbear ]; then
+    uci -q set dropbear.@dropbear[0].Interface='lan'
+    echo "dropbear: Interface=lan" >>"$LOGFILE"
+fi
+if [ -x /etc/init.d/ttyd ]; then
+    uci -q set ttyd.@ttyd[0].interface='lan'
+    # enable 选项是 luci-app-ttyd 的开关; 连同服务自启一起关掉, 两条路都堵上
+    uci -q set ttyd.@ttyd[0].enable='0'
+    /etc/init.d/ttyd stop >/dev/null 2>&1
+    /etc/init.d/ttyd disable >/dev/null 2>&1
+    echo "ttyd: interface=lan, 默认关闭(需要时在 LuCI 手动开启)" >>"$LOGFILE"
+fi
 
-# 设置所有网口可连接 SSH
-uci set dropbear.@dropbear[0].Interface=''
+# root 无密码时, 在登录 banner 上明说 —— 默认状态不该被当成安全状态。
+# 加去重判断: 脚本被手动重跑时不要把同一段提示叠很多遍。
+ROOT_HASH=$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)
+if [ -z "$ROOT_HASH" ] && ! grep -q '安全提示: root 当前没有密码' /etc/banner 2>/dev/null; then
+    {
+        echo ""
+        echo "*** 安全提示: root 当前没有密码。"
+        echo "*** 登录 LuCI 后请立即在 [系统 - 管理权] 设置密码;"
+        echo "*** 在此之前不要把本机接入不可信网络。"
+        echo "*** 网页终端(ttyd)已默认关闭, 需要时在 LuCI 中手动开启。"
+        echo "*** (设置密码后本段提示可忽略)"
+        echo ""
+    } >> /etc/banner
+    echo "warning: root 无密码, 已在 /etc/banner 提示" >>"$LOGFILE"
+fi
 
 # ============ Web 服务器: nginx 主(80/443) + uhttpd 辅(8080/8443) ============
 # nginx-mod-luci 自带的 /etc/uci-defaults/60_nginx-luci-support 会执行

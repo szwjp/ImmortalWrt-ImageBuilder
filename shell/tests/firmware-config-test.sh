@@ -26,17 +26,6 @@ bad() { fail=$((fail + 1)); echo "  ❌ $1"; }
 [ -f "$BUILD" ]   || { echo "❌ 找不到 $BUILD" >&2; exit 1; }
 [ -f "$WORKFLOW" ] || { echo "❌ 找不到 $WORKFLOW" >&2; exit 1; }
 
-# ---- 通用工具: 从文件里抽出 IP 校验正则, 供实际测试用 ----
-# workflow 里用 bash 的 =~, 脚本里用 grep -E。两者都吃 ERE, 所以抽出
-# 同一份正则后可以同时喂给两边验证行为一致。
-# 锚定到 CUSTOM_IP 那一行 —— 文件里还有别的 grep -Eq(比如接口名匹配),
-# 不加锚定会抓错行。
-extract_ip_regex() {
-  sed -n "s/.*CUSTOM_IP.*grep -Eq '\([^']*\)'.*/\1/p" "$1" | head -1
-}
-
-IP_RE=$(extract_ip_regex "$CUSTOM")
-
 # ================================================================
 # 1. PPPoE 凭据: 读取侧不能用 . (source)
 # ================================================================
@@ -125,40 +114,39 @@ else
 fi
 
 # ================================================================
-# 4. 管理地址校验: 必须逐段限 0-255
+# 4. 管理地址校验: 全项目只有一份实现(shell/validate-ip.sh)
 # ================================================================
-if [ -z "$IP_RE" ]; then
-  bad "没能从 99-custom.sh 里抽出 IP 校验正则(格式可能变了)"
+# 规则本身由 validate-ip-test.sh 做行为测试; 这里只断言"接线"对了:
+# workflow、首启脚本、构建脚本都指向同一份文件, 没有任何一处再内联正则。
+VALIDATE="$REPO_ROOT/shell/validate-ip.sh"
+if [ -f "$VALIDATE" ]; then
+  ok "存在唯一的校验实现 shell/validate-ip.sh"
 else
-  ok "抽出了 IP 校验正则"
-  # 合法地址必须通过
-  for ip in 192.168.1.1 10.0.0.1 255.255.255.255 0.0.0.0 172.16.31.254; do
-    if printf '%s' "$ip" | grep -Eq "$IP_RE"; then
-      ok "合法地址被接受: $ip"
-    else
-      bad "合法地址被误拒: $ip"
-    fi
-  done
-  # 越界/畸形必须被拒 —— 这正是老正则放过的
-  for ip in 256.1.1.1 999.999.999.999 192.168.1.256 300.1.1.1 1.2.3 1.2.3.4.5 "" "192.168.1.1 "; do
-    if printf '%s' "$ip" | grep -Eq "$IP_RE"; then
-      bad "非法地址被误收: [$ip]"
-    else
-      ok "非法地址被拒绝: [$ip]"
-    fi
-  done
+  bad "缺少 shell/validate-ip.sh"
 fi
 
-# workflow 侧必须用同一份正则(两处必须同步, 否则 CI 放行但脚本仍会写坏值)
-# workflow 里是 bash =~ 语法, 正则没有被引号包裹, 用 grep -o 按 "=~ ^...$" 截取。
-# 只取第一处匹配 —— profile 那条校验的正则形态不同, 不会被误取。
-WF_RE=$(grep -o '=~ \^.*\$' "$WORKFLOW" | head -1 | sed 's/^=~ //')
-if [ -z "$WF_RE" ]; then
-  bad "没能从 workflow 里抽出 IP 校验正则"
-elif [ "$WF_RE" = "$IP_RE" ]; then
-  ok "workflow 与 99-custom.sh 的 IP 正则一致"
+if grep -qF '/usr/lib/imm/validate-ip.sh' "$CUSTOM" && grep -q 'ip_is_usable' "$CUSTOM"; then
+  ok "99-custom.sh source 固件内的 validate-ip.sh 并调用 ip_is_usable"
 else
-  bad "workflow 与 99-custom.sh 的 IP 正则不一致, 两处必须同步"
+  bad "99-custom.sh 没有 source /usr/lib/imm/validate-ip.sh 或没有调用 ip_is_usable"
+fi
+
+if grep -qE 'CUSTOM_IP.*grep -Eq|CUSTOM_IP.*=~' "$CUSTOM"; then
+  bad "99-custom.sh 又内联了 IP 正则, 两份规则会漂移"
+else
+  ok "99-custom.sh 不再内联 IP 正则"
+fi
+
+if grep -qF 'sh shell/validate-ip.sh "$CUSTOM_ROUTER_IP"' "$WORKFLOW"; then
+  ok "workflow 调用 shell/validate-ip.sh"
+else
+  bad "workflow 没有调用 shell/validate-ip.sh"
+fi
+
+if grep -qF 'shell/validate-ip.sh' "$BUILD" && grep -qF '/usr/lib/imm/validate-ip.sh' "$BUILD"; then
+  ok "build.sh 把校验脚本拷进 /usr/lib/imm"
+else
+  bad "build.sh 没有把校验脚本拷进固件, 设备上会 source 不到"
 fi
 
 # ================================================================
@@ -274,6 +262,30 @@ if grep -q 'cut -d\[ -f2' "$CUSTOM"; then
   bad "docker forwarding 仍按数组下标删除, 具名 forwarding 段会漏删"
 else
   ok "docker forwarding 按 section 标识删除(具名段不会漏删)"
+fi
+
+# ================================================================
+# 6c. 管理面默认收敛: SSH 只监听 lan, ttyd 默认关闭
+# ================================================================
+if grep -qF "dropbear.@dropbear[0].Interface='lan'" "$CUSTOM"; then
+  ok "SSH 只监听 lan"
+else
+  bad "SSH 没有限制到 lan(默认会监听所有接口)"
+fi
+if grep -qF 'delete ttyd.@ttyd[0].interface' "$CUSTOM"; then
+  bad "ttyd 仍被设置成监听所有接口"
+else
+  ok "ttyd 不再监听所有接口"
+fi
+if grep -qF '/etc/init.d/ttyd disable' "$CUSTOM"; then
+  ok "ttyd 默认关闭"
+else
+  bad "ttyd 没有默认关闭(免密网页 shell 一直开着)"
+fi
+if grep -qF '/etc/banner' "$CUSTOM"; then
+  ok "root 无密码时有登录 banner 提示"
+else
+  bad "root 无密码时没有提示"
 fi
 
 # ================================================================

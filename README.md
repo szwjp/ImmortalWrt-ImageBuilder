@@ -23,6 +23,7 @@ ImmortalWrt-ImageBuilder/
 │   └── imm.config               # 25.12.x 版本配置
 ├── shell/                       # 构建脚本和包管理目录
 │   ├── custom-packages.sh       # 核心软件包配置 + 官方 LuCI 应用清单 (25.12.x, APK)
+│   ├── validate-ip.sh           # 管理地址校验唯一实现 (workflow 与固件首启脚本共用)
 │   ├── refresh-release-date.sh  # 刷新 release 的 published_at, 兼 draft 兜底发布
 │   └── tests/                   # 构建脚本自测 (全部不联网, CI 里跑)
 │       ├── run-all.sh                    # 统一入口, 自动跑目录下全部 *-test.sh
@@ -30,7 +31,8 @@ ImmortalWrt-ImageBuilder/
 │       ├── refresh-release-date-test.sh  # refresh-release-date.sh 行为自测
 │       ├── firmware-config-test.sh       # 首启脚本/构建脚本 行为断言
 │       ├── iso-vendor-test.sh            # ISO 链路: vendored/文案/写盘护栏
-│       └── workflow-ci-test.sh           # 构建稳定性: 并发/超时/digest/凭据/产物
+│       ├── validate-ip-test.sh           # 管理地址校验: 主机地址语义矩阵
+│       └── workflow-ci-test.sh           # 构建稳定性: 并发/超时/digest/凭据/输入注入
 ├── files/etc/uci-defaults/      # 固件自定义文件目录
 │   └── 99-custom.sh             # 固件首次启动配置脚本
 └── iso/                         # ISO 安装器构建 (vendored, 不再 clone 第三方仓库)
@@ -75,7 +77,9 @@ ImmortalWrt-ImageBuilder/
 ### 特别说明
 
 - **单网口设备**（DHCP 模式）的唯一网口属于 LAN zone（默认入站放行），WebUI 直接可访问；脚本不会去改 WAN zone，因此以后自行添加 WAN 接口也不会意外带出一个放行。**多网口设备**用 LAN 静态地址访问，WAN 保持默认拒绝。
-- 固件默认 root 无密码，且 SSH、ttyd（网页终端）默认监听所有网口（含 WAN）。公网或不可信网络环境下请务必：设置 root 密码、在【系统 - 登录/SSH】中限制监听接口，或关闭 ttyd。
+- **管理面默认收敛**：SSH 只监听 LAN；ttyd（网页终端）默认关闭，需要时在 LuCI【系统 - 终端】手动开启。固件默认 root 无密码，root 无密码时首启会在登录 banner 上提示设置密码；设置密码前，不要把设备接入不可信网络。
+- **单网口 DHCP 模式**下设备会成为上游局域网的一员，管理面也就在那一侧。该模式只为首次访问方便，长期使用请设置 root 密码，或改用多网口/静态地址。
+- **管理地址只接受 /24 内的可用主机地址**：拒绝 0.0.0.0、网络地址（.0）、广播地址（.255）、回环、组播/保留段和 169.254/16。规则只有一份 `shell/validate-ip.sh`，workflow 与固件首启脚本共用，不再两处维护正则。
 - **启用 PPPoE 时，宽带密码会以明文写入固件镜像**（首启脚本读完即删设备上的副本，但镜像本身仍含明文）。这类固件请勿公开分发。CI 日志里不再回显凭据，但这只解决日志，不解决镜像。
 - 发布资产除固件外还带 `<固件>.sha256`（下载后 `sha256sum -c` 校验）与 `.manifest`（固件内软件包清单）。
 
@@ -83,5 +87,6 @@ ImmortalWrt-ImageBuilder/
 
 - 两个 release 的 tag 固定（`Autobuild-x86-64`、`Custom-Installer-x86_64-ISO`），工作流用 `concurrency` 串行化，避免并发 dispatch 互相覆盖同名资产。
 - ImageBuilder 镜像按 digest 钉死（见工作流里的版本 → digest 映射，新增版本要补一行）；ISO 链路的 `debian:buster` 同样按 digest 钉死。
+- 工作流输入只经 `env:` 传入脚本，`run:` 里不内联 `${{ inputs.* }}`；管理地址校验统一走 `shell/validate-ip.sh`。
 - release 日期刷新是 draft→published 往返，失败路径由 `--ensure-published` 兜底，避免 release 卡在 draft 对外消失。
 - push / pull_request 会跑 `test.yml`（语法检查 + 全部自测，不联网），规则被改坏会在提交时就红，而不是等到下次手动出图。
