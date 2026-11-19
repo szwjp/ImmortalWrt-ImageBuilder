@@ -258,7 +258,7 @@ jobs:
 
       - name: Upload firmware as release (img)
         if: inputs.output_format == 'img'
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: Autobuild-x86-64
           body_path: ${{ github.workspace }}/router-info.md
@@ -369,7 +369,7 @@ jobs:
           sh shell/build-info.sh "$GITHUB_WORKSPACE/dist/build-info.json" "$artifact" "$extra"
 
       - name: Upload ISO to Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: "Custom-Installer-x86_64-ISO"
           body_path: "${{ github.workspace }}/iso/info.md"
