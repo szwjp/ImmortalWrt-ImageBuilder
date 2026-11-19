@@ -57,7 +57,7 @@ ImmortalWrt-ImageBuilder/
 
 - **单网口设备**：默认采用 DHCP 模式，自动获取 IP；首启会生成随机 root 密码并输出到本机控制台（见下方「特别说明」）
 - **多网口设备**：默认 WAN 口采用 DHCP 模式，LAN 口 IP 为 192.168.1.1（最后一个网口为 WAN，其余为 LAN）；自动映射支持 **最多 9 个物理网口**，超过则不做自动映射（见「特别说明」）
-- **IPv6（wan6）**：只有在镜像里还没有 `wan6`、且 WAN 不是 PPPoE 时，脚本才会补一个指向物理 WAN 口的 DHCPv6 客户端；已有 `wan6` 一律不覆盖。**启用 PPPoE 时不创建也不修改 `wan6`**：PPP 链路起来后 `/lib/netifd/ppp6-up` 会自动 `ubus call network add_dynamic` 建一个名为 `wan_6` 的动态 DHCPv6 客户端（它不在 UCI 配置里，`uci show network` 看不到），IPv6 由它负责；再写一个 UCI `wan6` 只会让 LuCI 里出现两个 IPv6 条目。需要自己指定 IPv6 时，请在 LuCI 里手工添加。
+- **IPv6（wan6）**：只有在镜像里还没有 `wan6`、且 WAN 不是 PPPoE 时，脚本才会补一个指向物理 WAN 口的 DHCPv6 客户端；已有 `wan6` 一律不覆盖。**启用 PPPoE 时不创建也不修改 `wan6`**：PPP 链路起来后 `/lib/netifd/ppp6-up` 会自动 `ubus call network add_dynamic` 建一个名为 `wan_6` 的动态 DHCPv6 客户端（它不在 UCI 配置里，`uci show network` 看不到），IPv6 由它负责；再写一个 UCI `wan6` 只会让 LuCI 里出现两个 IPv6 条目。需要自己指定 IPv6 时，请在 LuCI 里手工添加。升级保留配置的机器若已存在 UCI `wan6`，首启日志会提示与 `wan_6` 重复（日志只提示、不自动删）。
 - 若在工作流中勾选了拨号信息，则 WAN 口模式为 PPPoE 拨号模式（仅多网口设备生效）
 - 建议拨号用户使用之前重启一次光猫
 

@@ -672,6 +672,17 @@ else
   bad "没有探测已有 wan6, 会重复配置"
 fi
 
+if grep -q '与自动创建的 wan_6 重复' "$CUSTOM"; then
+  ok "PPPoE 下已有 wan6 时会在日志提示重复(不擅自删除)"
+else
+  bad "PPPoE 下残留的 UCI wan6 没有提示, 用户会一直看到两个 IPv6 条目"
+fi
+if grep -q 'uci -q delete network.wan6' "$CUSTOM" && awk '/count" -gt 1/{f=1} /^fi$/{if(f)f=0} f && /delete network.wan6$/{print; exit}' "$CUSTOM" | grep -q .; then
+  bad "多网口/PPPoE 分支擅自删除了 wan6, 会冲掉用户配置"
+else
+  ok "不擅自删除用户的 wan6"
+fi
+
 wan6_src=$(sed -n '/^# >>> wan6-autoconfig/,/^# <<< wan6-autoconfig/p' "$CUSTOM")
 if [ -n "$wan6_src" ]; then
   eval "$wan6_src"

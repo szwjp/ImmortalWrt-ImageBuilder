@@ -266,7 +266,16 @@ elif [ "$count" -gt 1 ]; then
         uci set network.wan6.proto='dhcpv6'
         echo "wan6: 新建 DHCPv6 客户端($wan_ifname)" >>"$LOGFILE"
     else
-        echo "wan6: 已有配置或启用 PPPoE, 不自动创建(IPv6 交给平台/LuCI 维护)" >>"$LOGFILE"
+        if [ "$enable_pppoe" = "yes" ]; then
+            echo "wan6: PPPoE 模式, 不自动创建(IPv6 由 ppp6-up 自动创建的 wan_6 负责)" >>"$LOGFILE"
+            # 升级上来的机器可能带着旧固件写下的 UCI wan6; 不自动删(可能是用户自己的
+            # 配置), 但必须提示, 否则 LuCI 里会一直是两个 IPv6 条目。
+            if [ "$wan6_exists" = "1" ]; then
+                echo "warning: PPPoE 模式下还有 UCI wan6, 与自动创建的 wan_6 重复, 建议在 LuCI【网络 - 接口】删除 wan6" >>"$LOGFILE"
+            fi
+        else
+            echo "wan6: 已有 UCI 配置, 保持不变" >>"$LOGFILE"
+        fi
     fi
 
     # 查找 br-lan 设备 section(按段名值匹配, 具名段也能找到)
