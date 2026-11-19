@@ -138,6 +138,16 @@ list_physical_ports() {
 }
 # <<< list-physical-ports
 
+# 从 `uci show network` 的输出里取 br-lan 的 device 段名。
+# 必须按值匹配, 不能只认 @device[N]: 段一旦被命名过(config device 'brlan'),
+# 老写法就找不到, 于是端口不重排、LAN 也不设地址, 而脚本照样 exit 0。
+# >>> brlan-section
+find_brlan_section() {
+    sed -n -e "s/^network\.\([^.=]*\)\.name='br-lan'\$/\1/p" \
+           -e "s/^network\.\([^.=]*\)\.name=br-lan\$/\1/p" | head -1
+}
+# <<< brlan-section
+
 ifnames=$(list_physical_ports)
 count=$(echo "$ifnames" | wc -w)
 echo "Detected physical interfaces: $ifnames" >>$LOGFILE
@@ -152,11 +162,13 @@ for port in $ifnames; do
     echo "port $port: mac=$mac driver=$driver pci=$pci" >>$LOGFILE
 done
 
-# 支持上限。为什么是 9: 枚举依赖 /sys/class/net/* 的 glob, 那是字典序,
-# 从第 10 个口开始 eth10 会排在 eth2 前面, "最后一个口当 WAN" 必然配错,
-# 而且不报错。9 口以内 ethN 的字典序恰好等于数字序, 这条规则才站得住。
-# 超限就不做自动映射, 保住镜像默认配置(lan=eth0、wan=eth1), 其余口留给用户
-# 在 LuCI 里手工指定 —— 宁可少配, 不写出一个静默错配的 WAN。
+# 支持上限。枚举依赖 /sys/class/net/* 的 glob, 那是字典序: 名字里一旦出现
+# 两位数(eth10), eth10 会排在 eth2 前面, "最后一个口当 WAN" 就配错,
+# 而且不报错。实测 10 口(eth0..eth9)排序仍然正确, 错位从第 11 口开始。
+# 这里仍取 9 而不是 10: 多留一档余量, 让"上限"与"实际开始出错"之间有
+# 间隔, 避免以后有人改命名规则(比如去掉 eth0)时刚好踩线。
+# 超限就不做自动映射, 保留镜像默认网络配置, 其余口留给用户在 LuCI 里
+# 手工指定 —— 宁可少配, 不写出一个静默错配的 WAN。
 MAX_PORTS=9
 
 # 2. 映射WAN和LAN接口
@@ -170,7 +182,7 @@ echo "Board detected: $board_name" >>$LOGFILE
 # 3. 配置网络
 if [ "$count" -gt "$MAX_PORTS" ]; then
     # 超限: 不动 network, 也不猜哪个口是 WAN。日志写清楚让用户手工配。
-    echo "error: 检测到 $count 个物理网口, 超过自动映射上限 $MAX_PORTS, 跳过网口自动配置(保留镜像默认: lan=eth0、wan=eth1, 其余口请在 LuCI 手工指定)" >>"$LOGFILE"
+    echo "error: 检测到 $count 个物理网口, 超过自动映射上限 $MAX_PORTS, 跳过网口自动配置(保留镜像默认网络配置: 通常 lan=br-lan 含 eth0, wan 取决于存在哪些网口; 其余口请在 LuCI 手工指定)" >>"$LOGFILE"
 elif [ "$count" -eq 1 ]; then
     # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
     # 但这也意味着设备会直接接入上游局域网: 管理面就在那一侧, 所以下面必须
@@ -206,8 +218,8 @@ elif [ "$count" -gt 1 ]; then
     uci set network.wan6.device="$wan_ifname"
     uci set network.wan6.proto='dhcpv6'
 
-    # 查找 br-lan 设备 section
-    section=$(uci show network | awk -F '[.=]' '/\.@?device\[[0-9]+\]\.name=.br-lan.$/ {print $2; exit}')
+    # 查找 br-lan 设备 section(按段名值匹配, 具名段也能找到)
+    section=$(uci show network | find_brlan_section)
     if [ -z "$section" ]; then
         echo "error: cannot find device 'br-lan', LAN ports not configured" >>$LOGFILE
     else
@@ -355,11 +367,25 @@ uci -q commit ttyd
 # 在原有版本描述后追加打包者信息。
 # 不能整行替换: DISTRIB_DESCRIPTION 是 LuCI 状态页显示的固件版本行,
 # 覆盖成一句署名后, 界面上就看不到版本号了。
-FILE_PATH="/etc/openwrt_release"
-PACKAGER_SUFFIX=" (Packaged by szwjp)"
-if [ -f "$FILE_PATH" ]; then
-    sed -i "s/^\(DISTRIB_DESCRIPTION='\)\([^']*\)'\$/\1\2${PACKAGER_SUFFIX}'/" "$FILE_PATH"
-fi
+# 幂等: 已经加过就跳过 —— 脚本可能被手动重跑, 后缀不该叠成一长串。
+# >>> packager-suffix
+add_packager_suffix() {
+    pkg_file="$1"
+    pkg_mark="Packaged by szwjp"
+    [ -f "$pkg_file" ] || return 0
+    grep -qF "$pkg_mark" "$pkg_file" && return 0
+    # 不用 sed -i: busybox 与 BSD sed 的 -i 语义不同(是否跟备份后缀),
+    # 先写临时文件再覆盖回去, 两边都能跑, 也保住原文件的权限位。
+    pkg_tmp="$pkg_file.tmp.$$"
+    sed "s/^\(DISTRIB_DESCRIPTION='\)\([^']*\)'\$/\1\2 (${pkg_mark})'/" "$pkg_file" > "$pkg_tmp" &&
+        cat "$pkg_tmp" > "$pkg_file"
+    pkg_rc=$?
+    rm -f "$pkg_tmp"
+    return $pkg_rc
+}
+# <<< packager-suffix
+
+add_packager_suffix /etc/openwrt_release
 
 # 若安装了dockerd 则设置docker的防火墙规则
 # 扩大docker涵盖的子网范围 '172.16.0.0/12'

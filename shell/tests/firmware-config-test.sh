@@ -386,19 +386,19 @@ fi
 # ================================================================
 # 6e. 网口枚举: 只认物理口, 且自动映射上限 9 个
 # ================================================================
-# /sys/class/net/* 的 glob 是字典序: 10 口起 eth10 排在 eth2 前面,
-# 「最后一个口当 WAN」就会静默配错。所以把支持范围钉在 9 口以内,
-# 超限时不做自动映射。这里既断言上限存在, 也真跑一遍枚举函数。
+# /sys/class/net/* 的 glob 是字典序: 名字里出现两位数(eth10)后, eth10 会排在
+# eth2 前面, 「最后一个口当 WAN」就静默配错。实测 10 口(eth0..eth9)仍正确,
+# 错位从第 11 口开始; 脚本仍把上限取 9, 多留一档余量。
 if grep -q '^MAX_PORTS=9$' "$CUSTOM"; then
-  ok "端口数上限是 9"
+  ok "端口数上限是 9(比实际错位点 11 留一档余量)"
 else
-  bad "没有把端口数上限定为 9, 10 口机的 WAN 会静默配错"
+  bad "没有把端口数上限定为 9, 11 口机的 WAN 会静默配错"
 fi
 
 if grep -q 'count" -gt "\$MAX_PORTS"' "$CUSTOM"; then
   ok "超过上限时跳过多网口自动映射"
 else
-  bad "缺少超限判断, 10 口机会按字典序最后一个口当 WAN"
+  bad "缺少超限判断, 11 口机会按字典序最后一个口当 WAN"
 fi
 
 # 每个口的 MAC/驱动/PCI 必须进日志, 否则顺序错了没法排查。
@@ -425,17 +425,27 @@ if [ -n "$gen_ports_src" ]; then
     bad "9 口排序异常: count=$nine_n last=$nine_last"
   fi
 
-  # 10 口: 复现字典序陷阱, 证明上限不是拍脑袋
+  # 10 口(eth0..eth9): 仍然正确 —— 这就是「上限 9 是保守值」的依据
   i=0
-  while [ "$i" -le 10 ]; do mkdir -p "$fake_net/ten/eth$i/device"; i=$((i + 1)); done
+  while [ "$i" -le 9 ]; do mkdir -p "$fake_net/ten/eth$i/device"; i=$((i + 1)); done
   ten=$(list_physical_ports "$fake_net/ten")
+  ten_n=$(echo "$ten" | wc -w)
   ten_last=$(echo "$ten" | awk '{print $NF}')
-  if [ "$ten_last" != "eth9" ] && [ "$ten_last" != "eth10" ]; then
-    ok "10 口复现字典序错配(最后一个是 $ten_last, 不是 eth10)"
-  elif [ "$ten_last" = "eth2" ] || [ "$ten_last" = "eth10" ]; then
-    bad "10 口排序与预期不符: last=$ten_last"
+  if [ "$ten_n" -eq 10 ] && [ "$ten_last" = "eth9" ]; then
+    ok "10 口(eth0..eth9)排序仍正确, 最后一个是 eth9"
   else
-    ok "10 口枚举出 $(echo "$ten" | wc -w) 个口"
+    bad "10 口排序异常: count=$ten_n last=$ten_last"
+  fi
+
+  # 11 口: 出现两位数名字, 字典序把 eth10 排到前面, 最后一个变成 eth9
+  i=0
+  while [ "$i" -le 10 ]; do mkdir -p "$fake_net/eleven/eth$i/device"; i=$((i + 1)); done
+  eleven=$(list_physical_ports "$fake_net/eleven")
+  eleven_last=$(echo "$eleven" | awk '{print $NF}')
+  if [ "$eleven_last" = "eth9" ] && echo "$eleven" | grep -q 'eth10 eth2'; then
+    ok "11 口复现字典序错位(eth10 排在 eth2 前, 最后一个是 $eleven_last)"
+  else
+    bad "11 口没有复现字典序错位: last=$eleven_last list=$eleven"
   fi
 
   # 虚拟口必须排除: gen 目录里只给 eth0/enp3s0 建 device 节点
@@ -463,6 +473,97 @@ if [ -n "$gen_ports_src" ]; then
   rm -rf "$fake_net"
 else
   bad "抽不到 list_physical_ports, 无法做枚举行为测试"
+fi
+
+# ================================================================
+# 6f. br-lan 段解析 + 打包者后缀幂等
+# ================================================================
+# 老写法只认匿名段 @device[N], 具名段(config device 'brlan')找不到, 于是
+# 端口不重排、LAN 不设地址, 脚本还照常 exit 0。这里用真实 uci show 的
+# 输出格式做行为测试; 后缀那段则验证「重跑不叠加」。
+if grep -q 'uci show network | find_brlan_section' "$CUSTOM"; then
+  ok "br-lan 段通过 find_brlan_section 解析"
+else
+  bad "没有走 find_brlan_section, 具名段仍会漏"
+fi
+
+if grep -q '@?device\[' "$CUSTOM"; then
+  bad "仍在用只认 @device[N] 的正则"
+else
+  ok "不再依赖匿名段命名"
+fi
+
+brlan_src=$(sed -n '/^# >>> brlan-section/,/^# <<< brlan-section/p' "$CUSTOM")
+if [ -n "$brlan_src" ]; then
+  eval "$brlan_src"
+  got=$(printf "%s\n" "network.@device[0]=device" "network.@device[0].name='br-lan'" | find_brlan_section)
+  if [ "$got" = "@device[0]" ]; then
+    ok "匿名段 @device[0] 能识别"
+  else
+    bad "匿名段识别失败: [$got]"
+  fi
+  got=$(printf "%s\n" "network.brlan=device" "network.brlan.name='br-lan'" | find_brlan_section)
+  if [ "$got" = "brlan" ]; then
+    ok "具名段 brlan 也能识别"
+  else
+    bad "具名段识别失败: [$got]"
+  fi
+  got=$(printf "%s\n" "network.lan=interface" "network.lan.device='br-lan'" | find_brlan_section)
+  if [ -z "$got" ]; then
+    ok "只认 device 段的 .name, 不会被 lan.device 误导"
+  else
+    bad "误把 lan.device 当成 device 段: [$got]"
+  fi
+  got=$(printf "%s\n" "network.x=device" "network.x.name='br-lan2'" | find_brlan_section)
+  if [ -z "$got" ]; then
+    ok "br-lan2 之类近似名不会被误判"
+  else
+    bad "近似名被误判成 br-lan: [$got]"
+  fi
+else
+  bad "抽不到 find_brlan_section, 无法做段解析行为测试"
+fi
+
+if grep -q 'add_packager_suffix /etc/openwrt_release' "$CUSTOM"; then
+  ok "打包者后缀走 add_packager_suffix"
+else
+  bad "没有调用 add_packager_suffix, 重跑会叠加后缀"
+fi
+
+suffix_src=$(sed -n '/^# >>> packager-suffix/,/^# <<< packager-suffix/p' "$CUSTOM")
+if [ -n "$suffix_src" ]; then
+  eval "$suffix_src"
+  rel_tmp=$(mktemp)
+  printf "DISTRIB_DESCRIPTION='ImmortalWrt 25.12.2 r1'\n" > "$rel_tmp"
+  add_packager_suffix "$rel_tmp"
+  add_packager_suffix "$rel_tmp"
+  add_packager_suffix "$rel_tmp"
+  suffix_n=$(grep -o 'Packaged by szwjp' "$rel_tmp" | wc -l | tr -d ' ')
+  if [ "$suffix_n" -eq 1 ]; then
+    ok "重跑三次只追加一次后缀"
+  else
+    bad "后缀被叠加了 $suffix_n 次"
+  fi
+  if grep -q "DISTRIB_DESCRIPTION='ImmortalWrt 25.12.2 r1 (Packaged by szwjp)'" "$rel_tmp"; then
+    ok "版本号原样保留, 只在末尾追加"
+  else
+    bad "版本行被改写坏了: $(cat "$rel_tmp")"
+  fi
+  if ( unset rel_tmp_ok; add_packager_suffix /nonexistent/openwrt_release ); then
+    ok "文件不存在时安全返回(不报错)"
+  else
+    bad "文件不存在时返回了非 0"
+  fi
+  printf "DISTRIB_ID='ImmortalWrt'\n" > "$rel_tmp"
+  add_packager_suffix "$rel_tmp"
+  if grep -q 'Packaged by szwjp' "$rel_tmp"; then
+    bad "没有 DISTRIB_DESCRIPTION 时也改了文件"
+  else
+    ok "没有 DISTRIB_DESCRIPTION 时保持原样"
+  fi
+  rm -f "$rel_tmp"
+else
+  bad "抽不到 add_packager_suffix, 无法做幂等测试"
 fi
 
 # ================================================================
