@@ -8,6 +8,17 @@
 # 会误报 SC2034(unused); 但变量缺失在 build.sh 的 set -u 下会 unbound variable
 # 直接退出, 所以既不能删、也不能光加注释。
 # 要排除多个包就写成 "-包名1 -包名2"(空格分隔); 空串 "" 表示不排除任何包。
+#
+# 为什么排除 autocore:
+#   x86 的 ImageBuilder 在 target/linux/x86/Makefile 的 DEFAULT_PACKAGES 里默认
+#   带它(官方 25.12.2 镜像也带, 上游认为它有用, 这不是缺陷)。本仓库排除它,
+#   是 58b1fa4 定下的口径: 与主仓库 v1 核心集对齐, 调优交给自维护调优插件。
+#   它的 /etc/init.d/autocore 每次开机对所有 eth* 强制 ethtool -K 开
+#   rx/tx-checksum / sg / gso / tso / ufo, 写 RPS flow 表(4096×线程), 并把 igc
+#   (I225/I226) 环形缓冲拉到最大 —— 改的是驱动默认值和手工调过的值
+#   (本仓库没有 ethtool/RPS 配置, 不是覆盖仓库自己的配置)。
+#   代价: 少了 /sbin/cpuinfo, LuCI 状态页 "架构" 行退回内核默认显示。
+#   它不是调频包(调频是另一个 arm-only 的 cpufreq)。
 # shellcheck disable=SC2034
 EXCLUDE_PACKAGES="-autocore"
 
