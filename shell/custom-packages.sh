@@ -3,6 +3,12 @@
 # 这里放"封装层最基础的核心组件": 固件必须有的系统基础件。
 # 官方 LuCI 应用写在文件末尾的「ImmortalWrt 官方 LuCI 应用」区段, 直接写包名,
 # 按需启用/注释。
+#
+# 本文件被 x86-64/build.sh source, 变量在这个文件里永远不会被读, 所以 shellcheck
+# 会误报 SC2034(unused); 但变量缺失在 build.sh 的 set -u 下会 unbound variable
+# 直接退出, 所以既不能删、也不能光加注释。
+# 要排除多个包就写成 "-包名1 -包名2"(空格分隔); 空串 "" 表示不排除任何包。
+# shellcheck disable=SC2034
 EXCLUDE_PACKAGES="-autocore"
 
 #==== 系统基础（base 系统组件） ====
