@@ -1,9 +1,15 @@
 #!/bin/bash
 # 自定义软件包配置 (ImmortalWrt 25.12.x, APK)
-#
 # 这里放"封装层最基础的核心组件": 固件必须有的系统基础件。
 # 官方 LuCI 应用写在文件末尾的「ImmortalWrt 官方 LuCI 应用」区段, 直接写包名,
 # 按需启用/注释。
+# ============= 显式排除的包 =============
+# 语法: "-包名" = 从构建里排除掉(ImageBuilder 的 PACKAGES 参数语义,
+# 见其 Makefile:144 "-\"pkgname\" in the package list means remove \"pkgname\"":
+# x86 target 的 ImageBuilder 默认带 autocore(自动调频), 与主仓库核心集口径不一致, 排除掉。
+# 由 x86-64/build.sh source 后拼进 PACKAGES, 本文件内不直接引用
+# shellcheck disable=SC2034
+#EXCLUDE_PACKAGES="-autocore"
 
 #==== 系统基础（base 系统组件） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES base-files"
@@ -29,15 +35,6 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES apk-openssl"
 # 因此两个集合都装: luci-nginx 提供 nginx 后端, luci 保留 uhttpd 作为备用入口。
 # (uhttpd 由 luci-light 依赖带入, 端口调整见 files/etc/uci-defaults/99-custom.sh)
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-nginx"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-base-zh-cn"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-firewall-zh-cn"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-package-manager-zh-cn"
-# nginx 本体 + LuCI 适配模块。
-# nginx-full 提供 nginx 二进制(含 SSL), nginx-mod-luci 提供 LuCI 的 nginx
-# location 配置与 uwsgi 联动; luci-nginx 依赖它们, 这里显式列出以确保装全。
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-full"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-mod-luci"
 #==== 网络核心与防火墙 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES netifd"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES firewall4"
@@ -51,7 +48,6 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES ppp"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES ppp-mod-pppoe"
 #==== 远程管理（SSH + 网页终端） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES dropbear"
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES ttyd"
 #==== 存储与文件系统 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES block-mount"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES automount"
@@ -66,6 +62,8 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES mtd"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES grub2-bios-setup"
 #==== 中国区默认设置 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES default-settings-chn"
+#=====硬件状态与调优=====
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES autocore"
 #==== 有线网卡驱动（Intel） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-e1000"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-e1000e"
@@ -104,21 +102,25 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-drm-i915"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES i915-firmware-dmc"
 #==== 其他 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-button-hotplug"
+# nginx 本体 + LuCI 适配模块。
+# nginx-full 提供 nginx 二进制(含 SSL), nginx-mod-luci 提供 LuCI 的 nginx
+# location 配置与 uwsgi 联动; luci-nginx 依赖它们, 这里显式列出以确保装全
+# luci 与 luci-nginx 是同一套 LuCI 的两种 Web 后端实现:
+# luci      -> uhttpd + lua/ucode CGI, LuCI 界面由 uhttpd 提供
+# luci-nginx-> nginx + uwsgi, LuCI 界面由 nginx 反代到 uwsgi
+# 两者共用 luci-base 等核心包, 不存在文件冲突, 可以共存。
+# 本固件采用 nginx 作为主 Web 服务器(80/443), uhttpd 退居辅助(8080/8443),
+# 因此两个集合都装: luci-nginx 提供 nginx 后端, luci 保留 uhttpd 作为备用入口。
+# (uhttpd 由 luci-light 依赖带入, 端口调整见 files/etc/uci-defaults/99-custom.sh)
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-nginx"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-full"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES nginx-mod-luci"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-tcp-bbr"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES ddns-scripts-aliyun"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
 
-# ============= 显式排除的包 =============
-# 语法: "-包名" = 从构建里排除掉(ImageBuilder 的 PACKAGES 参数语义,
-# 见其 Makefile:144 "-\"pkgname\" in the package list means remove \"pkgname\"":
-# x86 target 的 ImageBuilder 默认带 autocore(自动调频), 与主仓库核心集口径不一致, 排除掉。
-# 由 x86-64/build.sh source 后拼进 PACKAGES, 本文件内不直接引用
-# shellcheck disable=SC2034
-EXCLUDE_PACKAGES="-autocore"
-
-# ============= 官方 LuCI 应用 =============
-# 见下方「ImmortalWrt 官方 LuCI 应用」区段: 直接写包名(luci-i18n-<名>-zh-cn),
-# 按需启用/注释, 不做按版本动态解析。
-
 # ============ ImmortalWrt 官方 LuCI 应用 ============
+# 见下方「ImmortalWrt 官方 LuCI 应用」区段: 直接写包名(luci-i18n-<名>-zh-cn),# 按需启用/注释, 不做按版本动态解析。
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-3cat-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-3ginfo-lite-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-acl-zh-cn"
@@ -136,7 +138,7 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-adblock-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-attendedsysupgrade-zh-cn"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-autoreboot-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-banip-zh-cn"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-base-zh-cn"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-base-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-battstatus-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-bcp38-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-bitsrunlogin-go-zh-cn"
@@ -169,7 +171,7 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-diskman-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-filebrowser-go-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-filebrowser-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-filemanager-zh-cn"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-firewall-zh-cn"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-firewall-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-frpc-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-frps-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-fwknopd-zh-cn"
@@ -212,7 +214,7 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-diskman-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-openwisp-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-oscam-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-p910nd-zh-cn"
-#CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-package-manager-zh-cn"
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-package-manager-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-pagekitec-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-passwall-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-pbr-zh-cn"
