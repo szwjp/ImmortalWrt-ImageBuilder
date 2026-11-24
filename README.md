@@ -64,7 +64,8 @@ ImmortalWrt-ImageBuilder/
 ### 包集合怎么组织
 
 - **`shell/custom-packages.sh`** 只放封装层的**核心组件**（系统基础件、网络核心、驱动、存储、引导、中文界面底线）。
-- **要排除的包**写在同一文件的 `EXCLUDE_PACKAGES`，用 ImageBuilder 的 `-包名` 语法（表示这个包不装进固件）。当前排除了 `autocore`（自动调频）——x86 的 ImageBuilder 默认会带上它，与核心集口径不一致。
+- **要排除的包**写在同一文件的 `EXCLUDE_PACKAGES`，用 ImageBuilder 的 `-包名` 语法（表示这个包不装进固件）；空串表示不排除任何包，变量本身必须保留（`build.sh` 是 `set -u`）。
+- **`autocore` 采用"保留 + 关脚本"**：x86 的 ImageBuilder 默认带它。它提供 `/sbin/cpuinfo`（LuCI 状态页的「架构」行：CPU 型号 / 物理核数 / 频率 / 温度），这部分要留；但它的 `/etc/init.d/autocore` 每次开机都会对所有 `eth*` 强制 `ethtool -K` 打开 offload、写入 RPS flow 表、并把 igc（I225/I226）环形缓冲拉到最大，会覆盖固件里显式配置的网卡参数。因此固件里保留了包，由 `files/etc/uci-defaults/20-autocore-norun.sh` 在首启时 `disable` 该 init 脚本；要恢复开机调优，执行 `/etc/init.d/autocore enable`。
 - **官方 LuCI 应用**写在 `custom-packages.sh` 末尾的「ImmortalWrt 官方 LuCI 应用」区段，直接写包名（`luci-i18n-<名>-zh-cn`），按需启用/注释：
 
   ```sh

@@ -36,7 +36,7 @@ jobs:
           bash -n iso/supportFiles/custom/ddd
           echo "OK  bash -n iso/supportFiles/custom/ddd"
           # 以 /bin/sh(OpenWrt 上是 ash, CI 上是 dash)执行的脚本必须也是 POSIX 语法
-          for f in files/etc/uci-defaults/99-custom.sh shell/refresh-release-date.sh shell/validate-ip.sh; do
+          for f in files/etc/uci-defaults/99-custom.sh files/etc/uci-defaults/20-autocore-norun.sh shell/refresh-release-date.sh shell/validate-ip.sh; do
             sh -n "$f"
             echo "OK  sh -n $f"
           done
