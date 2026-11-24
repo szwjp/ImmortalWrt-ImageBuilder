@@ -65,7 +65,7 @@ ImmortalWrt-ImageBuilder/
 
 - **`shell/custom-packages.sh`** 只放封装层的**核心组件**（系统基础件、网络核心、驱动、存储、引导、中文界面底线）。
 - **要排除的包**写在同一文件的 `EXCLUDE_PACKAGES`，用 ImageBuilder 的 `-包名` 语法（表示这个包不装进固件）；变量必须保留定义（`build.sh` 是 `set -u`，缺失会直接退出）。
-- **当前排除 `autocore`**：x86 的 ImageBuilder 默认带它，官方 25.12.2 镜像也带（上游认为它有用，不是缺陷）。本仓库排除它，是 [`58b1fa4`](https://github.com/szwjp/ImmortalWrt-ImageBuilder/commit/58b1fa4) 定下的口径：与主仓库 v1 核心集对齐，调优交给自维护调优插件。它的 `/etc/init.d/autocore` 每次开机对所有 `eth*` 强制 `ethtool -K` 开 offload、写 RPS flow 表、把 igc（I225/I226）环形缓冲拉到最大，改的是驱动默认值和手工调过的值（本仓库没有 ethtool/RPS 配置）。代价：少了 `/sbin/cpuinfo`，LuCI 状态页「架构」行退回内核默认显示。它**不是**调频包——调频是另一个 arm-only 的 `cpufreq`。
+- **当前不排除任何包**（`EXCLUDE_PACKAGES=""`）：**跟随 25.12.2 官方默认集**，不排除也不额外添加。所以官方 x86 默认带的 `autocore` 会照常装进固件，提供 `/sbin/cpuinfo`（LuCI 状态页「架构」行）和开机网卡调优（`ethtool` offload、RPS、igc 环形缓冲）。此前 [`58b1fa4`](https://github.com/szwjp/ImmortalWrt-ImageBuilder/commit/58b1fa4) 曾为"与主仓库 v1 核心集口径一致"排除过它，现已改回以官方默认集为准。
 - **官方 LuCI 应用**写在 `custom-packages.sh` 末尾的「ImmortalWrt 官方 LuCI 应用」区段，直接写包名（`luci-i18n-<名>-zh-cn`），按需启用/注释：
 
   ```sh

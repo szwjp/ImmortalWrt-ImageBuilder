@@ -130,7 +130,11 @@ else
 fi
 
 # 6b. 排除项原始字符串只能由 "-包名" 组成, 整体格式严格
-if printf '%s' "$exclude_raw" | grep -qE '^-[a-zA-Z0-9._+-]+( -[a-zA-Z0-9._+-]+)*$'; then
+#     空串是合法状态(当前口径: 跟随官方默认集, 不排除任何包), 但变量必须有定义 ——
+#     build.sh 是 set -u, 注释掉会 unbound variable 直接退出。
+if [ -z "$exclude_raw" ]; then
+  ok "排除项为空(跟随官方默认集)"
+elif printf '%s' "$exclude_raw" | grep -qE '^-[a-zA-Z0-9._+-]+( -[a-zA-Z0-9._+-]+)*$'; then
   ok "排除项原始字符串格式严格(-包名 空格分隔)"
 else
   bad "排除项原始字符串格式不严格: [$exclude_raw]"
@@ -144,16 +148,12 @@ else
   bad "排除项有重复: $(echo "$dup_ex" | tr '\n' ' ')"
 fi
 
-# 8. autocore 必须被排除
-#    x86 的 ImageBuilder 默认会带上 autocore(自动调频), 与核心集口径不一致。
-#    两条路径都要堵: .config 侧的 CONFIG_PACKAGE_autocore 和 ImageBuilder
-#    target/linux/x86/Makefile 的 DEFAULT_PACKAGES。.config 侧由 imm.config
-#    保证, 这里守 PACKAGES 侧。
-if printf '%s\n' "$exclude_pkgs" | grep -qx -- '-autocore'; then
-  ok "autocore 在排除列表里"
-else
-  bad "autocore 没被排除(固件会带上自动调频): 排除项=[$(echo "$exclude_pkgs" | tr '\n' ' ')]"
-fi
+# 8. (已废弃) 原断言"autocore 必须被排除"
+#    25.12.2 官方 x86 默认集本来就带 autocore(target/linux/x86/Makefile 的
+#    DEFAULT_PACKAGES), 本仓库改为跟随官方, 既不排除也不显式添加, 于是这条
+#    没有可断言的稳定状态 —— 显式加入核心集其实等价, 也说得通。硬断言只会把
+#    口径焊死, 所以留空。
+#    真正该守的是第 9 条: 排除项不能和核心集自相抵消。
 
 # 9. 被排除的包不能同时出现在核心集里
 #    否则"排除"被核心集的显式引入抵消, 排除就是空转
