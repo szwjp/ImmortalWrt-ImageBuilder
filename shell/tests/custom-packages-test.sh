@@ -130,11 +130,7 @@ else
 fi
 
 # 6b. 排除项原始字符串只能由 "-包名" 组成, 整体格式严格
-#     空串是合法状态(当前口径: 不排除任何包), 但必须是"定义了的空", 不能是
-#     注释掉/删掉 —— build.sh 是 set -u, 变量缺失会 unbound variable 直接退出。
-if [ -z "$exclude_raw" ]; then
-  ok "排除项为空(当前不排除任何包)"
-elif printf '%s' "$exclude_raw" | grep -qE '^-[a-zA-Z0-9._+-]+( -[a-zA-Z0-9._+-]+)*$'; then
+if printf '%s' "$exclude_raw" | grep -qE '^-[a-zA-Z0-9._+-]+( -[a-zA-Z0-9._+-]+)*$'; then
   ok "排除项原始字符串格式严格(-包名 空格分隔)"
 else
   bad "排除项原始字符串格式不严格: [$exclude_raw]"
@@ -148,36 +144,15 @@ else
   bad "排除项有重复: $(echo "$dup_ex" | tr '\n' ' ')"
 fi
 
-# 8. autocore 的口径必须显式, 且只允许两种:
-#    a) 排除掉(排除项里有 -autocore);
-#    b) 保留在核心集里, 同时用 uci-defaults 关掉它的开机调优脚本(当前选择)。
-#    x86 的 ImageBuilder 默认会带上 autocore: 它提供 /sbin/cpuinfo(状态页要用),
-#    但它的 init 脚本会强制 ethtool 改写网卡参数。最糟的是"既不排除也没关",
-#    那样固件里就多了一个没人知道的隐式行为。
+# 8. autocore 必须被排除
+#    x86 的 ImageBuilder 默认会带上 autocore(自动调频), 与核心集口径不一致。
+#    两条路径都要堵: .config 侧的 CONFIG_PACKAGE_autocore 和 ImageBuilder
+#    target/linux/x86/Makefile 的 DEFAULT_PACKAGES。.config 侧由 imm.config
+#    保证, 这里守 PACKAGES 侧。
 if printf '%s\n' "$exclude_pkgs" | grep -qx -- '-autocore'; then
   ok "autocore 在排除列表里"
-elif printf '%s\n' "$core_pkgs" | grep -qx -- 'autocore'; then
-  ok "autocore 在核心集里(保留状态页, 调优脚本需关闭, 见 8b)"
 else
-  bad "autocore 既没排除也不在核心集: 口径必须显式声明(排除 或 保留+关脚本)"
-fi
-
-# 8b. 保留 autocore 时, 必须有一个 uci-defaults 脚本 disable 它的 init 脚本,
-#     否则"保留"等于默默接受每次开机改网卡参数。
-if printf '%s\n' "$core_pkgs" | grep -qx -- 'autocore'; then
-  autocore_off=""
-  for f in "$REPO_ROOT"/files/etc/uci-defaults/*.sh; do
-    [ -f "$f" ] || continue
-    if grep -q '/etc/init.d/autocore disable' "$f"; then
-      autocore_off=$(basename "$f")
-      break
-    fi
-  done
-  if [ -n "$autocore_off" ]; then
-    ok "autocore 调优脚本由 uci-defaults 关闭: $autocore_off"
-  else
-    bad "autocore 在核心集里, 但没有 uci-defaults 脚本 disable 它的 init 脚本"
-  fi
+  bad "autocore 没被排除(固件会带上自动调频): 排除项=[$(echo "$exclude_pkgs" | tr '\n' ' ')]"
 fi
 
 # 9. 被排除的包不能同时出现在核心集里

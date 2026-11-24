@@ -6,17 +6,26 @@
 # ============= 显式排除的包 =============
 # 语法: "-包名" = 从构建里排除掉(ImageBuilder 的 PACKAGES 参数语义,
 # 见其 Makefile:144 "-\"pkgname\" in the package list means remove \"pkgname\""),
-# 由 x86-64/build.sh source 后拼进 PACKAGES。
+# 由 x86-64/build.sh source 后拼进 PACKAGES, 本文件内不直接引用。
 #
-# 当前不排除任何包(空串): x86 的 ImageBuilder 默认带 autocore, 本固件选择保留它
-# (状态页要它的 /sbin/cpuinfo), 只关掉它的开机调优脚本 —— 见下方
-# 「硬件状态与调优」区段的说明。要排除就写成 "-包名", 空格分隔。
+# 排除 autocore: x86 的 ImageBuilder 在 target/linux/x86/Makefile 的
+# DEFAULT_PACKAGES 里默认带它。它提供两样东西 ——
+#   1) /sbin/cpuinfo + rpcd ACL: LuCI 状态页 "架构" 行(型号/物理核数/频率);
+#   2) /etc/init.d/autocore: 每次开机对所有 eth* 强制 ethtool -K 打开
+#      rx/tx-checksum / sg / gso / tso / ufo, 把 RPS flow 表设成 4096×线程,
+#      并对 igc(I225/I226) 把环形缓冲拉到最大。
+# 第 2 项会盖掉固件里(files/、uci-defaults)显式配置的网卡参数, 属于隐形改写;
+# 本固件的原则是网卡参数只由显式配置决定, 因此整包排除, 代价只是状态页的
+# CPU 信息退回内核默认显示。
 #
-# 变量必须定义(build.sh 是 set -u, 未定义会 unbound variable 直接退出),
-# 空串表示"不排除"。被排除的包不能再出现在下面的核心集里, 否则排除是空转,
-# shell/tests/custom-packages-test.sh 会拦。
+# (注意: 常有人把 autocore 说成"自动调频", 这是错的 —— 调频是另一个包 cpufreq,
+#  且其 DEPENDS 限定 @(arm||aarch64), x86 上没有这个包。)
+#
+# 变量必须保留定义: build.sh 是 set -euo pipefail, 变量缺失会 unbound variable
+# 直接退出。被排除的包不能再出现在下面的核心集里, 否则排除是空转,
+# shell/tests/custom-packages-test.sh 会拦(第 8、9 条)。
 # shellcheck disable=SC2034
-EXCLUDE_PACKAGES=""
+EXCLUDE_PACKAGES="-autocore"
 
 #==== 系统基础（base 系统组件） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES base-files"
@@ -60,17 +69,6 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES mtd"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES grub2-bios-setup"
 #==== 中国区默认设置 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES default-settings-chn"
-#=====硬件状态与调优=====
-# autocore 在 x86 上做两件事, 本固件只要前一件:
-#   1) /sbin/cpuinfo + rpcd ACL: LuCI 状态页的 "架构" 行(型号/物理核数/频率/温度),
-#      物理核数按 "core id" 去重, 比 processor 计数准。要保留。
-#   2) /etc/init.d/autocore: 每次开机对所有 eth* 强制 ethtool -K 打开
-#      rx/tx-checksum / sg / gso / tso / ufo, 把 RPS flow 表设成 4096×线程,
-#      并对 igc(I225/I226) 把环形缓冲拉到最大。这会覆盖 files/ 里显式配置的
-#      网卡参数, 行为不可预期, 因此由 files/etc/uci-defaults/20-autocore-norun.sh
-#      在首启时 disable 该 init 脚本(要恢复: /etc/init.d/autocore enable)。
-# 代价是仍然装进 ethtool + lm-sensors 两个依赖; 不用 autocore 就得自己实现 cpuinfo。
-CUSTOM_PACKAGES="$CUSTOM_PACKAGES autocore"
 #==== 有线网卡驱动（Intel） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-e1000"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-e1000e"
