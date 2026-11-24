@@ -46,6 +46,8 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES ppp"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES ppp-mod-pppoe"
 #==== 远程管理（SSH + 网页终端） ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES dropbear"
+#-----硬件状态与调优-----
+CUSTOM_PACKAGES="$CUSTOM_PACKAGES autocore"
 #==== 存储与文件系统 ====
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES block-mount"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES automount"
