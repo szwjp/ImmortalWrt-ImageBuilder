@@ -585,11 +585,40 @@ else
   bad "找不到 br-lan 时没有置位, LAN 半配置会被静默吞掉"
 fi
 
+# 三个分支原来只覆盖 >MAX_PORTS / ==1 / >1, 枚举到 0 个口时全部落空,
+# 不配网络也不置位, exit 0 后脚本被删除 —— 静默半配置。
+if grep -q 'elif \[ "\$count" -eq 0 \]; then' "$CUSTOM"; then
+  ok "count=0 有独立分支(不再静默落空)"
+else
+  bad "count=0 时没有分支, 网络与密码保护都会被跳过且脚本仍被删除"
+fi
+if awk '/count" -eq 0/{f=1} /count" -eq 1/{f=0} f && /STRUCT_FAIL=1/{ok=1} END{exit !ok}' "$CUSTOM"; then
+  ok "count=0 置结构性失败(问题每次启动可见)"
+else
+  bad "count=0 分支没有置位"
+fi
+
 net_commit_guard=$(grep -A2 'uci commit network || {' "$CUSTOM" | grep -c 'STRUCT_FAIL=1')
 if [ "$net_commit_guard" -ge 2 ]; then
   ok "两条 network 提交失败路径都置结构性失败($net_commit_guard 处)"
 else
   bad "network 提交失败没有置位(只有 $net_commit_guard 处)"
+fi
+
+# 单网口随机密码失败必须置位重试, 不能只写 warning 就 exit 0。
+# 这是本脚本唯一"失败 = 不安全"的步骤: 退出 0 会让 uci-defaults 删除脚本,
+# 设备就永久带着无密码 root 留在上游网段, 且没有第二次机会。
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f' "$CUSTOM" |
+   awk '/lockdown_single_nic_password/{in_blk=1} in_blk && /STRUCT_FAIL=1/{ok=1; exit} END{exit !ok}'; then
+  ok "单网口密码设置失败会置结构性失败(下次启动重试)"
+else
+  bad "单网口密码失败只记 warning 就 exit 0, 设备会永久留在无密码状态"
+fi
+# 反向: 不能改成"失败也算成功"的空 if
+if grep -q 'if ! lockdown_single_nic_password; then' "$CUSTOM"; then
+  ok "密码失败走的是失败分支(if ! ...)"
+else
+  bad "密码调用没有检查返回值"
 fi
 
 if grep -q 'pgrep -f nginx' "$CUSTOM"; then

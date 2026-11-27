@@ -216,6 +216,22 @@ stage "3/7 配置网络 (count=$count)"
 if [ "$count" -gt "$MAX_PORTS" ]; then
     # 超限: 不动 network, 也不猜哪个口是 WAN。日志写清楚让用户手工配。
     echo "error: 检测到 $count 个物理网口, 超过自动映射上限 $MAX_PORTS, 跳过网口自动配置(保留镜像默认网络配置: 通常 lan=br-lan 含 eth0, wan 取决于存在哪些网口; 其余口请在 LuCI 手工指定)" >>"$LOGFILE"
+elif [ "$count" -eq 0 ]; then
+    # 枚举到 0 个物理口。以前这里没有分支, 三个条件都不命中 -> 既不配 lan/wan,
+    # 也不跑单网口密码保护, 然后 exit 0 让 uci-defaults 删掉脚本: 设备起来但网络
+    # 和安全都不在预期状态, 日志里只有一行 "Interface count: 0"。
+    #
+    # 为什么置位而不是只记日志: 这说明"我们对这台机器的网络一无所知" —— 要么
+    # 网口命名不在 eth/en/lan/wan 白名单里(如 p1p1/bond0), 要么确实没有有线网口。
+    # 两种情况重试都不会自愈, 所以按 L12-15 的原则本可以只记一行; 但那样脚本会被
+    # 删除、问题只在首启日志里出现一次。保留脚本的价值在于: 本分支不写 network,
+    # 反复重试不会冲掉用户在 LuCI 里的手工改动(这正是"环境差异不重试"要防的),
+    # 成本只是每次启动多一条带时间戳的日志, 换来问题持续可见。
+    #
+    # 注意: 不要指望"下次启动网口就出现了"—— /etc/init.d/boot 里
+    # /sbin/kmodloader 先于 uci_apply_defaults 执行, 驱动已加载。
+    echo "error: 未枚举到任何物理网口(/sys/class/net/* 下无 device 节点, 或名字不在 eth/en/lan/wan 白名单); 跳过网口自动配置, 保留脚本使该问题每次启动可见。若本机确实没有有线网口、或网口命名特殊, 请手工配置 /etc/config/network 后删除 /etc/uci-defaults/99-custom.sh" >>"$LOGFILE"
+    STRUCT_FAIL=1
 elif [ "$count" -eq 1 ]; then
     # 单网口设备，DHCP模式。唯一网口属于 lan zone(默认入站放行), 无需动防火墙。
     # 但这也意味着设备会直接接入上游局域网: 管理面就在那一侧, 所以下面必须
@@ -238,8 +254,19 @@ elif [ "$count" -eq 1 ]; then
         STRUCT_FAIL=1
     }
 
-    lockdown_single_nic_password ||
-        echo "warning: 随机密码设置失败, root 仍无密码, 本机请勿接入不可信网络" >>"$LOGFILE"
+    # 密码生成/写入失败必须重试, 不能只记一行 warning: 本分支的整个前提就是
+    # "单网口会把管理面暴露给上游网段", 失败后设备带着无密码 root 留在那个网段,
+    # 而退出 0 会让 uci-defaults 删除脚本 —— 再没有第二次机会。这是本脚本里
+    # 唯一"失败 = 不安全"的步骤, 所以它属于结构性失败。
+    #
+    # 与 L12-15 "环境差异不重试" 的关系: 那条针对的是重试也没用的情况(没装
+    # ttyd/nginx)。这里恰恰相反, 重试有用(例如 /etc/shadow 写盘瞬断), 代价只是
+    # 多跑一轮本身幂等的配置, 收益大于噪声。若 shadow 真的只读, 每次启动都会
+    # 重试并留下带时间戳的日志, 反而让"这台机器一直没密码"持续可见。
+    if ! lockdown_single_nic_password; then
+        echo "error: 随机密码设置失败, root 仍无密码; 保留脚本待下次启动重试" >>"$LOGFILE"
+        STRUCT_FAIL=1
+    fi
 elif [ "$count" -gt 1 ]; then
     # 默认最后一个接口为WAN，其余为LAN
     wan_ifname=$(echo "$ifnames" | awk -v total="$count" '{print $total}')
