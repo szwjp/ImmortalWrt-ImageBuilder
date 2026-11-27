@@ -103,7 +103,8 @@ fi
 # 离线阅读。出处信息用仓库名/commit 记录即可, 不需要带 URL。
 # 注意排除 iso/LICENSE: 那是上游 MIT 许可证原文, 不可改动。
 for f in "$ISO_DIR/README.md" "$ISO_DIR/info.md" "$ISO_DIR/autobuild.sh" \
-         "$ISO_DIR/supportFiles/custom/build.sh"
+         "$ISO_DIR/supportFiles/custom/build.sh" \
+         "$REPO_ROOT/README.md" "$REPO_ROOT/SUPPORT.md"
 do
     if grep -qE 'https?://[^ ]*github\.com' "$f"; then
         bad "文档/注释里残留 github 外链: ${f#$REPO_ROOT/}"
