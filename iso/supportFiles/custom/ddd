@@ -28,16 +28,58 @@ size_human() {
     fi
 }
 
+# 找出承载 live 系统的那个整盘, 输出其内核名(如 sda)。
+# 为什么要这个: 从 Ventoy U 盘启动时, 那个 U 盘是"可写整盘", 只按 RO=0 过滤
+# 挡不住它, 它会和被安装的目标盘一起出现在菜单里 —— 选中就是把自己写掉,
+# 安装器当场消失。
+#
+# 实现上不猜 live-boot 的具体路径(buster 的 live-boot 有 /lib/live/mount/medium
+# 与 /run/live/medium 两代), 而是把两个都试, 再用 findmnt -no SOURCE 反查
+# 挂载源, 逐级去掉分区号得到整盘。取不到就返回非 0, 由调用方决定如何处理 ——
+# 绝不在"不知道哪个是安装介质"的情况下假装安全。
+live_medium_disk() {
+    local mnt src base
+    for mnt in /run/live/medium /lib/live/mount/medium; do
+        [ -d "$mnt" ] || continue
+        src=$(findmnt -no SOURCE --target "$mnt" 2>/dev/null) || continue
+        [ -n "$src" ] || continue
+        base=$(basename "$src")
+        # /dev/sda1 -> sda, /dev/nvme0n1p1 -> nvme0n1, /dev/mmcblk0p1 -> mmcblk0
+        case "$base" in
+            nvme*|mmcblk*) base=$(printf '%s' "$base" | sed 's/p[0-9]*$//') ;;
+            *)             base=$(printf '%s' "$base" | sed 's/[0-9]*$//') ;;
+        esac
+        [ -n "$base" ] || continue
+        printf '%s\n' "$base"
+        return 0
+    done
+    return 1
+}
+
 # 输出候选磁盘列表到 stderr, 把用户选中的盘从 stdout 返回。
 # 只接受 lsblk 里 TYPE=disk 且 RO=0 的整盘: 分区、只读介质(安装用的 U 盘/光盘)
 # 都不该成为写入目标。
 detect_disk() {
     local -a disks=()
     local name ro type dev size model i
+    local medium medium_known=0
+
+    if medium=$(live_medium_disk); then
+        medium_known=1
+        echo "Installer medium detected on /dev/${medium} — it will not be offered as a target." >&2
+    else
+        # 认不出安装介质时仍然列出可写盘, 但必须告警: 从 U 盘启动的机器上,
+        # 那个 U 盘此刻就在候选列表里。
+        echo "Warning: cannot identify the installer medium; make sure you do NOT pick" >&2
+        echo "         the USB stick you booted from." >&2
+    fi
 
     while read -r name ro type; do
         [ "$type" = "disk" ] || continue
         [ "$ro" = "0" ] || continue
+        if [ "$medium_known" -eq 1 ] && [ "$name" = "$medium" ]; then
+            continue
+        fi
         disks+=("/dev/$name")
     done < <(lsblk -d -n -o NAME,RO,TYPE)
 

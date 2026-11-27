@@ -208,6 +208,33 @@ else
     bad "ddd 没有在写入前校验目标盘容量"
 fi
 
+# 安装介质本身必须被排除: 从 Ventoy U 盘启动时那个盘是可写整盘, 只靠 RO=0
+# 挡不住, 它会和目标盘一起出现在菜单里 —— 选中即把自己写掉。
+if grep -q 'live_medium_disk' "$DDD"; then
+    ok "ddd 会识别并排除安装介质所在的整盘"
+else
+    bad "ddd 不识别安装介质, Ventoy U 盘会出现在候选列表里"
+fi
+for p in /run/live/medium /lib/live/mount/medium; do
+    if grep -qF "$p" "$DDD"; then
+        ok "ddd 覆盖 live-boot 介质路径: $p"
+    else
+        bad "ddd 未覆盖介质路径 $p (live-boot 版本差异会导致识别失败)"
+    fi
+done
+# 认不出来时必须告警, 不能静默按"没有介质"处理
+if grep -q 'cannot identify the installer medium' "$DDD"; then
+    ok "认不出安装介质时给出告警"
+else
+    bad "认不出安装介质时没有任何提示, 用户可能选到启动 U 盘"
+fi
+# 设备名归一: 分区号剥掉才能和 lsblk 的整盘名列对上
+if grep -q 'nvme\*|mmcblk\*' "$DDD"; then
+    ok "ddd 对 nvme/mmcblk 的 pN 后缀单独处理"
+else
+    bad "ddd 未处理 nvme0n1p1 这类命名, 介质识别会失败"
+fi
+
 # live 安装器只需本地控制台: 完全不装 sshd, 从根上避免同网段 root 登录后 dd 磁盘
 if grep -qE 'openssh-server|systemctl (enable|disable) ssh' "$ISO_DIR/supportFiles/installChroot.sh"; then
     bad "installer live 环境仍在安装/管理 sshd(应完全不装)"
