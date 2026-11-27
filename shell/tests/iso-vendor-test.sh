@@ -342,6 +342,7 @@ fi
 # 这里检查 git 记录的模式(100755), 而不是工作区的权限 —— 后者在 Windows
 # 检出后可能不一致, 而 git 模式才是权威来源。
 for f in \
+    iso/autobuild.sh \
     iso/supportFiles/custom/build.sh \
     iso/supportFiles/custom/ddd \
     iso/supportFiles/installChroot.sh
