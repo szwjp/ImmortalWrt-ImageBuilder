@@ -9,11 +9,15 @@ files/usr/lib/imm/
 
 # 本地构建产物（跑 x86-64/build.sh 或 iso/autobuild.sh 之后会出现）。
 # 注意 custom/ 里会有 build.sh 生成的 pppoe-settings（含明文密码），千万别提交。
-bin/
-custom/
-dist/
-router-info.md
+#
+# 路径一律锚定到仓库根目录: 不锚定的 "custom/" 会匹配任意层级, 把
+# iso/supportFiles/custom/ 下以后新增的源码文件一并静默忽略 —— git add 时不报错,
+# 推送后 CI 才发现少文件。
+/bin/
+/custom/
+/dist/
+/router-info.md
 /*.img.gz
 
 # 审查报告只保存在本地
-docs/
+/docs/

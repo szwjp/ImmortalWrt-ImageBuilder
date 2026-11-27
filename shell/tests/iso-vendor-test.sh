@@ -334,6 +334,26 @@ else
     bad "autobuild.sh 缺少运行时 chmod 兜底"
 fi
 
+# ================================================================
+# 10. .gitignore 的构建产物规则必须锚定根目录
+# ================================================================
+# 踩过的坑: 不锚定的 "custom/" 匹配任意层级, 于是 iso/supportFiles/custom/
+# 下以后新增的源码文件会被静默忽略 —— git add 不报错, 推送后 CI 才发现少文件。
+# 同时校验根目录那份产物仍然被忽略: 锚定不能顺手把防护拆掉(custom/ 里会有
+# build.sh 生成的 pppoe-settings, 含明文宽带密码)。
+if git -C "$REPO_ROOT" check-ignore -q iso/supportFiles/custom/.gitignore-probe 2>/dev/null; then
+    bad "iso/supportFiles/custom/ 下的新文件仍被 .gitignore 忽略(规则未锚定根目录)"
+else
+    ok ".gitignore 未越界忽略 iso/supportFiles/custom/ 下的新文件"
+fi
+for p in custom/pppoe-settings bin/x dist/y router-info.md; do
+    if git -C "$REPO_ROOT" check-ignore -q "$p" 2>/dev/null; then
+        ok "根目录构建产物仍被忽略: $p"
+    else
+        bad "根目录构建产物未被忽略(可能把明文密码一起提交): $p"
+    fi
+done
+
 echo
 echo "iso-vendor-test: 通过 $pass, 失败 $fail"
 [ "$fail" -eq 0 ] || exit 1
