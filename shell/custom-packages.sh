@@ -118,7 +118,8 @@ CUSTOM_PACKAGES="$CUSTOM_PACKAGES ddns-scripts-aliyun"
 CUSTOM_PACKAGES="$CUSTOM_PACKAGES openssh-sftp-server"
 
 # ============ ImmortalWrt 官方 LuCI 应用 ============
-# 见下方「ImmortalWrt 官方 LuCI 应用」区段: 直接写包名(luci-i18n-<名>-zh-cn),# 按需启用/注释, 不做按版本动态解析。
+# 见下方「ImmortalWrt 官方 LuCI 应用」区段: 直接写包名(luci-i18n-<名>-zh-cn),
+# 按需启用/注释, 不做按版本动态解析。
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-3cat-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-3ginfo-lite-zh-cn"
 #CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-acl-zh-cn"
