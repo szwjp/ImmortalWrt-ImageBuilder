@@ -564,6 +564,31 @@ if [ -n "$suffix_src" ]; then
     ok "没有 DISTRIB_DESCRIPTION 时保持原样"
   fi
   rm -f "$rel_tmp"
+
+  # 描述里含单引号时也必须追加成功。旧的 sed 实现在这里整行匹配不上,
+  # 静默不改 —— 上游 25.12.2 的描述恰好不带撇号, 所以一直没暴露。
+  rel_apos=$(mktemp)
+  printf "DISTRIB_DESCRIPTION='ImmortalWrt 25.12.2, r38135 Dave's Guitar'\n" > "$rel_apos"
+  add_packager_suffix "$rel_apos"
+  if grep -qF "Dave's Guitar (Packaged by szwjp)" "$rel_apos"; then
+    ok "描述含单引号时仍能追加后缀"
+  else
+    bad "描述含单引号时后缀未追加(旧 sed 实现的静默失败): $(cat "$rel_apos")"
+  fi
+  add_packager_suffix "$rel_apos"
+  apos_n=$(grep -o 'Packaged by szwjp' "$rel_apos" | wc -l | tr -d ' ')
+  if [ "$apos_n" -eq 1 ]; then
+    ok "含单引号的描述重跑也不叠加后缀"
+  else
+    bad "含单引号的描述重跑后后缀出现 $apos_n 次"
+  fi
+  # 撇号本身不能被吃掉或转义
+  if grep -qF "Dave's Guitar" "$rel_apos"; then
+    ok "撇号原样保留"
+  else
+    bad "撇号被改写了"
+  fi
+  rm -f "$rel_apos"
 else
   bad "抽不到 add_packager_suffix, 无法做幂等测试"
 fi
@@ -619,6 +644,53 @@ if grep -q 'if ! lockdown_single_nic_password; then' "$CUSTOM"; then
   ok "密码失败走的是失败分支(if ! ...)"
 else
   bad "密码调用没有检查返回值"
+fi
+
+# A5: 单网口分支必须保证 lan 有 device。board.d 只在 eth0 存在时才建 lan;
+# 唯一网口不叫 eth0 时, 原来的 uci set lan.proto=dhcp 会造出一个没有 device
+# 的接口 —— 永远起不来而脚本照常 exit 0。
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f' "$CUSTOM" |
+   grep -q 'uci -q get network.lan.device'; then
+  ok "单网口分支检查 lan.device 是否存在"
+else
+  bad "单网口分支没检查 lan.device, 网口不叫 eth0 时接口起不来"
+fi
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f' "$CUSTOM" |
+   grep -q "uci set network.lan.device='br-lan'"; then
+  ok "单网口分支会给 lan 补上 br-lan device"
+else
+  bad "单网口分支没有补 device 的逻辑"
+fi
+# 补 device 时必须复用已有的 br-lan 段, 否则会造出第二个同名 bridge
+if awk '/count" -eq 1/{f=1} /count" -gt 1/{f=0} f' "$CUSTOM" |
+   grep -q 'find_brlan_section'; then
+  ok "单网口补 device 时复用已有 br-lan 段"
+else
+  bad "单网口补 device 时直接新建段, 可能产生重复 bridge"
+fi
+
+# A12: 多网口分支必须先确认 lan.device 指向 br-lan, 再往桥上配端口与地址。
+# 顺序错了等于把地址配到一个和这些端口无关的接口上。
+if awk '/count" -gt 1/{f=1} /^fi$/{if(f)f=0} f' "$CUSTOM" |
+   grep -q "uci set network.lan.device='br-lan'"; then
+  ok "多网口分支把 lan.device 对齐到 br-lan"
+else
+  bad "多网口分支假定 lan.device 就是 br-lan, 上游改设备名后地址会配错接口"
+fi
+
+# A13: wan6 的 device 必须用 '@wan' 别名, 而不是写死物理口名。
+# 写死的话, wan 以后改成 PPPoE/桥/VLAN 时 wan6 仍挂在原网卡上, IPv6 静默失效。
+if awk '/wants_wan6/{f=1} /^    fi$/{if(f)f=0} f' "$CUSTOM" |
+   grep -q "uci set network.wan6.device='@wan'"; then
+  ok "wan6.device 用 @wan 别名(跟随 wan 接口实际设备)"
+else
+  bad "wan6.device 写死物理口名, wan 改类型后 IPv6 会静默失效"
+fi
+if awk '/wants_wan6/{f=1} /^    fi$/{if(f)f=0} f' "$CUSTOM" |
+   grep -q 'network.wan6.device="\$wan_ifname"'; then
+  bad "wan6.device 仍写死 \$wan_ifname"
+else
+  ok "wan6.device 不再写死物理口名"
 fi
 
 if grep -q 'pgrep -f nginx' "$CUSTOM"; then

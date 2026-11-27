@@ -239,6 +239,29 @@ elif [ "$count" -eq 1 ]; then
     # 顺序也重要: uci-defaults 在 S10boot 阶段执行, 早于 S20network 起网络,
     # 所以密码先于网口可用就位。
     echo "single-nic: DHCP 模式, 设备将接入上游局域网, 随后生成随机 root 密码" >>"$LOGFILE"
+
+    # 先确保 lan 段真的挂上了网口。board.d 写的是 ucidef_set_interface_lan 'eth0',
+    # 只有 eth0 存在时才建 lan 及其 br-lan; 若本机唯一的网口不叫 eth0(某些 OEM
+    # 命名, 或内核走了 en* 命名), 下面那些 uci set 会凭空造出一个没有 device 的
+    # network.lan —— 接口永远起不来, 而脚本照常 exit 0。
+    single_nic_dev=$(uci -q get network.lan.device)
+    if [ -z "$single_nic_dev" ]; then
+        single_nic_port=$(echo "$ifnames" | awk '{print $1}')
+        # 复用已存在的 br-lan 设备段(按值匹配, 匿名/具名都能找到), 没有才新建。
+        # 直接 uci set network.brlan=... 会造出第二个同名 bridge。
+        single_brlan=$(uci show network 2>/dev/null | find_brlan_section)
+        if [ -z "$single_brlan" ]; then
+            uci set network.brlan=device
+            uci set network.brlan.name='br-lan'
+            single_brlan='brlan'
+        fi
+        uci set "network.$single_brlan.type"='bridge'
+        uci -q delete "network.$single_brlan.ports"
+        uci add_list "network.$single_brlan.ports"="$single_nic_port"
+        uci set network.lan.device='br-lan'
+        echo "single-nic: lan 段原本没有 device, 已把唯一网口 $single_nic_port 挂到 br-lan(段 $single_brlan)" >>"$LOGFILE"
+    fi
+
     uci set network.lan.proto='dhcp'
     uci delete network.lan.ipaddr
     uci delete network.lan.netmask
@@ -289,9 +312,16 @@ elif [ "$count" -gt 1 ]; then
     fi
     if wants_wan6 "$wan6_exists" "$enable_pppoe"; then
         uci set network.wan6=interface
-        uci set network.wan6.device="$wan_ifname"
+        # device 用 '@wan' 而不是物理口名: netifd 的 device.c 对 '@' 开头的名字
+        # 走 device_alias_get(), 按接口名在 interfaces 表里查, 跟随该逻辑接口的
+        # l3_dev (alias.c: alias_check_state)。
+        #
+        # 写成 "$wan_ifname" 也对, 但它把 wan6 钉死在那块物理网卡上: 用户以后
+        # 把 wan 改成 PPPoE/桥接/VLAN 别名, wan6 仍然挂在原来的 ethN 上, 于是
+        # IPv6 拿不到地址, 而 LuCI 里看不出原因。'@wan' 会跟着走。
+        uci set network.wan6.device='@wan'
         uci set network.wan6.proto='dhcpv6'
-        echo "wan6: 新建 DHCPv6 客户端($wan_ifname)" >>"$LOGFILE"
+        echo "wan6: 新建 DHCPv6 客户端(device=@wan, 跟随 wan 接口的实际设备)" >>"$LOGFILE"
     else
         if [ "$enable_pppoe" = "yes" ]; then
             echo "wan6: PPPoE 模式, 不自动创建(IPv6 由 ppp6-up 自动创建的 wan_6 负责)" >>"$LOGFILE"
@@ -320,6 +350,19 @@ elif [ "$count" -gt 1 ]; then
         # 开启 STP 防止多 LAN 口接入同一交换机时产生环路
         uci set "network.$section.stp"='1'
         echo "Updated br-lan ports: $lan_ifnames" >>$LOGFILE
+
+        # 把 lan 接口绑到刚才配的那座桥上。
+        #
+        # 以前这一句没有: 端口重排与静态地址都按 br-lan 写, 却从没确认过
+        # network.lan.device 真的指向 br-lan。默认镜像里恰好是, 所以看不出来;
+        # 一旦上游 board.d 改成别的 device 名(或用户改过), 地址就会配到一个
+        # 和这些端口无关的接口上 —— 设备"配好了"但 LAN 口不通。
+        # 这里显式对齐, 不依赖上游的隐含约定。
+        lan_dev=$(uci -q get network.lan.device)
+        if [ "$lan_dev" != "br-lan" ]; then
+            echo "lan.device 是 '${lan_dev:-<空>}', 正在对齐到 br-lan(端口重排与静态地址都写在这里)" >>$LOGFILE
+            uci set network.lan.device='br-lan'
+        fi
 
         # LAN口设置静态IP (仅在 br-lan 找到时配置，避免写出半残配置)
         uci set network.lan.proto='static'
@@ -493,14 +536,52 @@ uci -q commit ttyd
 add_packager_suffix() {
     pkg_file="$1"
     pkg_mark="Packaged by szwjp"
+    # LOGFILE 在主流程里定义; 这个函数被测试单独抽出来跑时没有它, 给个兜底,
+    # 免得 set -u 环境下 unbound variable 直接中断。
+    pkg_log="${LOGFILE:-/tmp/99-custom.log}"
     [ -f "$pkg_file" ] || return 0
     grep -qF "$pkg_mark" "$pkg_file" && return 0
     # 不用 sed -i: busybox 与 BSD sed 的 -i 语义不同(是否跟备份后缀),
     # 先写临时文件再覆盖回去, 两边都能跑, 也保住原文件的权限位。
+    #
+    # 旧实现是 sed "s/^\(DISTRIB_DESCRIPTION='\)\([^']*\)'$/\1\2 (...)'/"。
+    # 它假定描述值里没有单引号, 于是 "ImmortalWrt 25.12.2, r38135 Dave's Guitar"
+    # 这类含撇号的描述整行匹配不上: sed 静默不改, 后缀悄悄不出现(实测复现)。
+    # 这里改成按行前缀定位, 取最后一个单引号之前的内容整体当作值, 撇号不再特殊。
+    #
+    # awk 而不是 sed: 需要在"找不到这一行"时给出可判断的返回值, sed 给不了。
+    #
+    # q 变量装着单引号: awk 程序体本身用单引号包裹, 里面不能再出现裸单引号,
+    # 否则 shell 会提前把字符串截断。用 -v 传进来是唯一干净的写法。
     pkg_tmp="$pkg_file.tmp.$$"
-    sed "s/^\(DISTRIB_DESCRIPTION='\)\([^']*\)'\$/\1\2 (${pkg_mark})'/" "$pkg_file" > "$pkg_tmp" &&
-        cat "$pkg_tmp" > "$pkg_file"
+    pkg_rc=0
+    awk -v mark="$pkg_mark" -v q="'" '
+        !done && /^DISTRIB_DESCRIPTION=/ {
+            # 值以第一个单引号开头、最后一个单引号收尾(上游 UCI 变量格式)。
+            # "DISTRIB_DESCRIPTION=" 占 20 字符, 值从第 21 字符起;
+            # 取 length-21 个字符即去掉收尾的单引号, 中间的撇号原样保留。
+            if (length($0) > 21 && substr($0, length($0), 1) == q) {
+                # 第 21 位是开头的单引号, 第 L 位是收尾的单引号; 值在两者之间,
+                # 即从第 22 位起、共 L-22 个字符。
+                body = substr($0, 22, length($0) - 22)
+                print "DISTRIB_DESCRIPTION=" q body " (" mark ")" q
+                done = 1
+                next
+            }
+        }
+        { print }
+        END { exit(done ? 0 : 3) }
+    ' "$pkg_file" > "$pkg_tmp"
     pkg_rc=$?
+    if [ "$pkg_rc" -eq 0 ]; then
+        cat "$pkg_tmp" > "$pkg_file"
+    elif [ "$pkg_rc" -eq 3 ]; then
+        # 文件里没有 DISTRIB_DESCRIPTION 行: 不是错误, 只是没东西可加。
+        echo "warning: $pkg_file 里找不到 DISTRIB_DESCRIPTION, 未追加打包者后缀" >>"$pkg_log"
+        pkg_rc=0
+    else
+        echo "error: 追加打包者后缀失败(awk rc=$pkg_rc)" >>"$pkg_log"
+    fi
     rm -f "$pkg_tmp"
     return $pkg_rc
 }
